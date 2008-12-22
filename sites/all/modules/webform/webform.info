@@ -1,0 +1,9 @@
+; $Id: $
+name = Webform
+description = Enables the creation of forms and questionnaires.
+
+; Information added by drupal.org packaging script on 2008-10-22
+version = "5.x-2.3"
+project = "webform"
+datestamp = "1224705037"
+
