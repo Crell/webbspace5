@@ -1,6 +1,5 @@
 <?php
-// $Id: project.install,v 1.17 2008/03/07 21:57:43 thehunmonkgroup Exp $
-// $Name: DRUPAL-5--1-2 $
+// $Id: project.install,v 1.17.2.4 2008/10/29 00:19:51 dww Exp $
 
 function project_install() {
   switch ($GLOBALS['db_type']) {
@@ -13,7 +12,6 @@ function project_install() {
           changelog varchar(255) NOT NULL default '',
           cvs varchar(255) NOT NULL default '',
           demo varchar(255) NOT NULL default '',
-          release_directory varchar(255) NOT NULL default '',
           documentation varchar(255) not null default '',
           screenshots varchar(255) not null default '',
           license varchar(255) not null default '',
@@ -29,7 +27,6 @@ function project_install() {
           changelog varchar(255) NOT NULL default '',
           cvs varchar(255) NOT NULL default '',
           demo varchar(255) NOT NULL default '',
-          release_directory varchar(255) NOT NULL default '',
           screenshots varchar(255) default '' not null,
           documentation varchar(255) default '' not null,
           license varchar(255) default '' not null,
@@ -53,6 +50,7 @@ function project_uninstall() {
     'project_browse_nodes',
     'project_sort_method',
     'project_vocabulary',
+    'project_search_block_help_text',
   );
   foreach ($variables as $variable) {
     variable_del($variable);
@@ -240,12 +238,23 @@ function project_update_5001() {
 }
 
 /**
- * Get rid of the version column in the projects table.
- * See http://drupal.org/node/36619
+ * Get rid of the 'version' column in the {project_projects} table.
+ * See http://drupal.org/node/231392
  */
 function project_update_5002() {
   $ret = array();
   // PgSQL and MySQL have the same syntax for this.
   $ret[] = update_sql('ALTER TABLE {project_projects} DROP COLUMN version');
+  return $ret;
+}
+
+/**
+ * Get rid of the 'release_directory' column in the {project_projects} table.
+ * See http://drupal.org/node/231558
+ */
+function project_update_5003() {
+  $ret = array();
+  // PgSQL and MySQL have the same syntax for this.
+  $ret[] = update_sql('ALTER TABLE {project_projects} DROP COLUMN release_directory');
   return $ret;
 }

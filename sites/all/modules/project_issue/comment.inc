@@ -1,6 +1,5 @@
 <?php
-// $Id: comment.inc,v 1.129.2.2 2008/04/14 00:26:24 thehunmonkgroup Exp $
-// $Name: DRUPAL-5--2-2 $
+// $Id: comment.inc,v 1.129.2.5 2008/12/17 08:07:33 dww Exp $
 
 function project_issue_comment(&$arg, $op) {
   // $arg can be a comment object, or a form or form_values.
@@ -42,6 +41,20 @@ function project_issue_comment(&$arg, $op) {
       // We need this otherwise pid collides with comment.
       $form['project_info']['#tree'] = TRUE;
       $form['project_info']['#weight'] = -2;
+
+      // Remove the form item that displays the current project, and
+      // replace the static single project value with a select list
+      // of all projects to make swapping simpler.
+      unset($form['project_info']['project_display']);
+      $uris = NULL;
+      $projects = array(t('<none>')) + project_projects_select_options($uris);
+      $form['project_info']['pid'] = array(
+        '#type' => 'select',
+        '#title' => t('Project'),
+        '#default_value' => $node->pid,
+        '#options' => $projects,
+        '#required' => TRUE,
+      );
 
       $form['issue_info']['#weight'] = -1;
       $form['#prefix'] = '<div class="project-issue"><div class="node-form"><div class="standard">';
@@ -260,6 +273,8 @@ function theme_project_issue_comment_table($comment_changes) {
 function theme_project_issue_comment_table_row($field, $change) {
   // Allow anchor, emphasis, and strong tags in metadata tables.
   $allowed_tags = array('a', 'em', 'strong');
+  // Fields that should be rendered as plain text, not filtered HTML.
+  $plain_fields = array('title', 'pid', 'rid');
 
   if (is_array($change['old']) || is_array($change['new'])) {
     $removed = array();
@@ -282,20 +297,25 @@ function theme_project_issue_comment_table_row($field, $change) {
       $added[] = '+'. $change['new'];
     }
 
-    $row = array(
+    return array(
       filter_xss($change['label'], $allowed_tags) .':',
       filter_xss(implode(', ', $removed), $allowed_tags),
       filter_xss(implode(', ', $added), $allowed_tags),
     );
-    return $row;
+  }
+  elseif (in_array($field, $plain_fields)) {
+    return array(
+      filter_xss($change['label'], $allowed_tags) .':',
+      check_plain(project_issue_change_summary($field, $change['old'])),
+      '&raquo; '. check_plain(project_issue_change_summary($field, $change['new'])),
+    );
   }
   else {
-    $row = array(
+    return array(
       filter_xss($change['label'], $allowed_tags) .':',
       filter_xss(project_issue_change_summary($field, $change['old']), $allowed_tags),
       '&raquo; '. filter_xss(project_issue_change_summary($field, $change['new']), $allowed_tags),
     );
-    return $row;
   }
 }
 

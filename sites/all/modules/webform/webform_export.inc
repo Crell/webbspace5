@@ -1,5 +1,5 @@
 <?php
-// $Id: webform_export.inc,v 1.1.2.1 2008/09/21 03:20:46 quicksketch Exp $
+// $Id: webform_export.inc,v 1.1.2.3 2009/02/14 01:03:38 quicksketch Exp $
 
 /**
  * @file
@@ -7,7 +7,7 @@
  */
 
 /**
- * Implementation of hook_webform_exporters()
+ * Implementation of hook_webform_exporters().
  *
  * Defines the exporters this module implements.
  *
@@ -82,7 +82,7 @@ class webform_exporter {
   }
 
   function set_headers($filename) {
-    drupal_set_header("Content-Type: application/force-download");
+    drupal_set_header('Content-Type: application/force-download');
   }
 
   function bof(&$file_handle) {
@@ -119,7 +119,7 @@ class webform_exporter_delimited extends webform_exporter {
       // Escape inner quotes and wrap all contents in new quotes.
       $data[$key] = '"'. str_replace('"', '""', $value) .'"';
     }
-    $row = implode($this->delimiter, $data) . "\n";
+    $row = implode($this->delimiter, $data) ."\n";
 
     if (function_exists('mb_convert_encoding')) {
       $row = mb_convert_encoding($row, 'UTF-16LE', 'UTF-8');
@@ -152,13 +152,13 @@ class webform_exporter_delimited extends webform_exporter {
 class webform_exporter_excel extends webform_exporter_delimited {
   var $delimiter;
 
-  function webform_exporter_delimited($options) {
-    $this->delimiter = '\t';
+  function webform_exporter_excel($options) {
+    $options['delimiter'] = '\t';
     parent::webform_exporter_delimited($options);
   }
 
   function set_headers($filename) {
-    drupal_set_header("Content-Type: application/x-msexcel");
+    drupal_set_header('Content-Type: application/x-msexcel');
     drupal_set_header("Content-Disposition: attachment; filename=$filename.xls");
   }
 }

@@ -1,6 +1,5 @@
 <?php
-// $Id: mail.inc,v 1.105 2008/03/07 21:30:23 thehunmonkgroup Exp $
-// $Name: DRUPAL-5--2-2 $
+// $Id: mail.inc,v 1.105.2.6 2009/01/07 20:48:32 dww Exp $
 
 function project_issue_mailhandler($node, $result, $i, $header, $mailbox) {
   if ($node->type == 'project') {
@@ -44,7 +43,7 @@ function project_issue_mailhandler($node, $result, $i, $header, $mailbox) {
           $node->$text = trim($node->$text);
           switch ($var) {
             case 'pid':
-              $project = node_load(array('title' => $node->$text, 'type' => 'project_project'));
+              $project = node_load($node->$text);
               if ($project->nid) {
                 $entry->pid = $project->nid;
               }
@@ -201,7 +200,10 @@ function project_mail_notify($nid) {
 
   // Record users that are connected to this issue.
   $uids = array();
-  if ($node->assigned) {
+  if (!empty($node->uid)) {
+    $uids[$node->uid] = $node->uid;
+  }
+  if (!empty($node->assigned)) {
     $uids[$node->assigned] = $node->assigned;
   }
 
@@ -274,19 +276,52 @@ function project_mail_notify($nid) {
   // is NOT the case.
   $check_file_perms = !db_num_rows(db_query("SELECT rid FROM {permission} WHERE perm LIKE '%view uploaded files%' AND rid IN (%d, %d)", DRUPAL_ANONYMOUS_RID, DRUPAL_AUTHENTICATED_RID));
 
+  // We need to determine if node_access() checks are necessary.  The
+  // check will be needed if any of the following is true:
+  //   1. The node is not published.
+  //   2. There is at least on node access control module enabled.
+  //   3. Both the anonymous and authenticated user do not have
+  //      the 'access project issues' permission.
+  $allowed_roles = user_roles(FALSE, 'access project issues');
+  if (isset($allowed_roles[DRUPAL_ANONYMOUS_RID]) || isset($allowed_roles[DRUPAL_AUTHENTICATED_RID])) {
+    $anon_auth_access = TRUE;
+  }
+  $grants = module_implements('node_grants');
+  $check_node_access = $node->status != 1 || !$anon_auth_access || !empty($grants);
+
   project_mail_output($node->title, 0);
   $subject = t('[!short_name] [!category] !title', array('!short_name' => $project->uri, '!category' => $node->category, '!title' => $node->title));
 
   while ($recipient = db_fetch_object($result)) {
-    if ($check_file_perms) {
+    // To save work, only go through a user_load if we need it.
+    if ($check_file_perms || $check_node_access) {
       $account = user_load(array('uid' => $recipient->uid));
-      $display_files = user_access('view uploaded files', $account);
+    }
+    if ($check_node_access) {
+      // Load the user that's to receive the mail into
+      // the global user object temporarily. We use session_save_session()
+      // to provide safe user impersonation.
+      $original_user = $user;
+      session_save_session(FALSE);
+      $user = $account;
+      $can_access = node_access('view', $node);
+      // Load the original user back in.
+      $user = $original_user;
+      session_save_session(TRUE);
     }
     else {
-      $display_files = TRUE;
+      $can_access = TRUE;
     }
-    $body = "$links\n". project_mail_generate_followup_mail_body($node, $history, $display_files);
-    drupal_mail('project_issue_update', $recipient->mail, $subject, $body, $from, $header);
+    if ($can_access) {
+      if ($check_file_perms) {
+        $display_files = user_access('view uploaded files', $account);
+      }
+      else {
+        $display_files = TRUE;
+      }
+      $body = "$links\n". project_mail_generate_followup_mail_body($node, $history, $display_files);
+      drupal_mail('project_issue_update', $recipient->mail, $subject, $body, $from, $header);
+    }
   }
 
   if (is_array($project->mail_copy_filter) && count(array_filter($project->mail_copy_filter)) && !$project->mail_copy_filter[$node->category]) {
@@ -568,102 +603,3 @@ function project_mail_format_entry($entry, $display_files, $is_original = FALSE)
   return $output;
 }
 
-function project_mail_reminder() {
-  global $base_url;
-
-  if (defined('PROJECT_NOMAIL')) {
-    return;
-  }
-
-  $projects = array();
-  $result = db_query(db_rewrite_sql('SELECT p.nid, n.title FROM {project_issue_projects} p INNER JOIN {node} n ON p.nid = n.nid WHERE p.mail_reminder = 1 AND n.status = 1', 'p'));
-  while ($project = db_fetch_object($result)) {
-    $projects[$project->nid] = $project->title;
-    $pids[] = "p.pid = $project->nid";
-  }
-  if (count($projects)) {
-
-    $sender->name = variable_get('site_name', '');
-    $sender->mail = variable_get('site_mail', '');
-
-    $result = db_query(db_rewrite_sql('SELECT p.nid, n.*, p.*, u.name, u.mail FROM {project_issues} p INNER JOIN {node} n ON p.nid = n.nid INNER JOIN {users} u ON n.uid = u.uid WHERE n.status = 1 AND u.status = 1 AND ('. implode(' OR ', $pids) .") AND u.mail <> '' AND (p.sid = 1 OR p.sid = 2) ORDER BY u.uid, p.pid, p.component, p.sid, n.changed DESC", 'p'));
-
-    while (($node = db_fetch_object($result)) || !empty($body)) {
-      if ($body && $mail && ((!$node) || ($mail != $node->mail))) {
-        $header = array(
-          'Return-Path' => "<$sender->mail;>",
-          'Date' => date('r'),
-          'From' => "$sender->name <$sender->mail>",
-          'X-Mailer' => 'Drupal Project Issues module (http://drupal.org/project/project_issue)',
-          'List-Id' => "$sender->name <project-reminder-". preg_replace('|.+://([a-zA-Z0-9\._-]+).*|', '\1', $base_url) .'>',
-          'List-Archive' => '<'. url('project', NULL, NULL, 1) .'>',
-        );
-
-        drupal_mail('project_issue_reminder', $mail, t('Your submitted bugs for !date', array('!date' => date('F d, Y', time()))), $body, NULL, $header);
-
-        $body = '';
-      }
-      $mail = $node->mail;
-
-      if ($node->nid) {
-        if ($pid != $node->pid || $component != $node->component) {
-          $pid = $node->pid;
-          $component = $node->component;
-          $banner = "$projects[$pid] / $component";
-          $body .= "[ $banner ]". str_repeat('=', 72 - 4 - strlen($banner)) ."\n";
-        }
-        $body .= "$node->title\n";
-        if ($node->assigned && $assigned = user_load(array('uid' => $node->assigned))) {
-          $body .= "  assigned: $assigned->name\n";
-        }
-        $body .= '  state: '. project_issue_state($node->sid) ."\n";
-        $body .= '  age: '. format_interval(time() - $node->created) ."\n";
-        $body .= '  url: '. url("node/$node->nid", NULL, NULL, 1) ."\n";
-        $body .= "\n";
-      }
-    }
-  }
-}
-
-function project_mail_digest() {
-  global $base_url;
-
-  if (defined('PROJECT_NOMAIL')) {
-    return;
-  }
-
-  $body = array();
-  $header = array(
-    'Date' => date('r'),
-    'X-Mailer' => 'Drupal Project Issues module (http://drupal.org/project/project_issue)',
-    'List-Id' => "$project->title <". preg_replace('|.+://([a-zA-Z0-9\._-]+).*|', '\1', $base_url) .'-project-issues-digest>',
-    'List-Archive' => '<'. url('project/issues?priorities=1', NULL, NULL, 1) .'>',
-  );
-
-  $result = db_query(db_rewrite_sql("SELECT n.nid, n.title, p.* FROM {node} n INNER JOIN {project_issue_projects} p ON n.nid = p.nid WHERE n.status = 1 AND p.mail_digest <> '' ORDER BY n.title, p.mail_digest"));
-  while ($project = db_fetch_object($result)) {
-    $category = '';
-    $result2 = db_query(db_rewrite_sql('SELECT p.nid, n.title, n.created, p.sid, p.category, p.component, p.priority, p.assigned FROM {project_issues} p INNER JOIN {node} n ON p.nid = n.nid WHERE n.status = 1 AND p.pid = %d AND p.sid = 1 AND p.priority = 1 ORDER BY p.category, n.created DESC', 'p'), $project->nid);
-    while ($node = db_fetch_object($result2)) {
-      if ($category != $node->category) {
-        $category = $node->category;
-        $banner = "$project->title / ". project_issue_category($node->category);
-        $body[$project->mail_digest] .= "$banner\n". str_repeat('-', $banner) ."\n";
-      }
-      $body[$project->mail_digest] .= "$node->title\n";
-      if ($node->assigned && $assigned = user_load(array('uid' => $node->assigned))) {
-        $body[$project->mail_digest] .= '  assigned: '. $assigned->name ."\n";
-      }
-      $body[$project->mail_digest] .= '  age: '. format_interval(time() - $node->created) ."\n";
-      $body[$project->mail_digest] .= '  url: '. url("node/$node->nid", NULL, NULL, 1) ."\n";
-      $body[$project->mail_digest] .= "\n";
-    }
-  }
-
-  foreach ($body as $mailto => $text) {
-    $header['From'] = $mailto;
-    $header['Return-Path'] = "<$mailto>";
-
-    drupal_mail('project_issue_critical_summary', $mailto, t('Release critical bugs for !date', array('!date' => date('F d, Y', time()))), $text, NULL, $header);
-  }
-}

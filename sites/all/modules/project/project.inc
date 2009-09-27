@@ -1,6 +1,5 @@
 <?php
-// $Id: project.inc,v 1.122 2008/03/07 21:57:43 thehunmonkgroup Exp $
-// $Name: DRUPAL-5--1-2 $
+// $Id: project.inc,v 1.122.2.7 2008/12/12 01:44:18 dww Exp $
 
 /**
  * Implementation of hook_form().
@@ -185,7 +184,7 @@ function project_project_validate(&$node) {
 
     // Make sure uri isn't already in use, or reserved.  Includes all X from
     // project/issues/X paths used in project_issues module
-    $reserved_names = array('user', 'issues', 'releases', 'rss', 'subscribe-mail', 'search', 'add', 'update_project', 'statistics', 'comments', 'autocomplete', 'cvs', 'developers');
+    $reserved_names = array('user', 'issues', 'releases', 'rss', 'subscribe-mail', 'search', 'add', 'update_project', 'statistics', 'comments', 'autocomplete', 'cvs', 'developers', 'usage');
     if (project_use_taxonomy()) {
       $terms = taxonomy_get_tree(_project_get_vid());
       foreach ($terms as $i => $term) {
@@ -314,13 +313,14 @@ function project_project_view($node, $teaser = false, $page = false) {
       $links['pending_support'] = l(t('View pending support requests'), 'project/issues/'. $node->uri, null, 'categories=support', null);
       $links['pending_bugs'] = l(t('View pending bug reports'), 'project/issues/'. $node->uri, null, 'categories=bug', null);
       $links['pending_features'] = l(t('View pending feature requests'), 'project/issues/'. $node->uri, null, 'categories=feature', null);
+      $links['search_issues'] = l(t('Search issues'), 'project/issues/search/'. $node->uri);
     }
     if ($make_issues) {
       $links['request_support'] = l(t('Request support'), 'node/add/project_issue/'. $node->uri .'/support');
       $links['report_bug'] = l(t('Report new bug'), 'node/add/project_issue/'. $node->uri .'/bug');
       $links['request_feature'] = l(t('Request new feature'), 'node/add/project_issue/'. $node->uri .'/feature');
     }
-    else {
+    elseif ($has_issues) {
       $links['create_forbidden'] = theme('project_issue_create_forbidden', $node->uri);
     }
     $all_links['support']['links'] = $links;
@@ -352,14 +352,35 @@ function project_project_view($node, $teaser = false, $page = false) {
     project_page_link_alter($node, $all_links);
 
     // Format links in $all_links for display in the project_project node.
+    // Keep track of the section with the heaviest weight (which will be last)
+    // so we can add a final clear after it to make sure the floating link
+    // sections do not interfere with other formatting in the node's content.
+    $max_weight = -10000;
+    $last_section = '';
     foreach($all_links as $section => $values) {
       // Only add the section if there are links for the section.
       if (!empty($values['links'])) {
+        $weight = !empty($values['weight']) ? $values['weight'] : 0;
         $node->content[$section] = array(
           '#value' => theme('item_list', $values['links'], $values['name']),
-          '#weight' => !empty($values['weight']) ? $values['weight'] : 0,
+          '#weight' => $weight,
+          '#prefix' => '<div class="project-links-section" id="project-links-section-'. $section .'">',
+          '#suffix' => '</div>',
         );
+        if (!empty($values['clear'])) {
+          $node->content[$section]['#suffix'] .= '<br style="clear:both;" />';
+        }
+        if ($weight >= $max_weight) {
+          $last_section = $section;
+          $max_weight = $weight;
+        }
       }
+    }
+    // We only want to add a clearing <br> after the final section if that
+    // section didn't already add a clear for itself (e.g. the heaviest
+    // section might already clear from hook_project_page_link_alter()).
+    if (empty($all_links[$last_section]['clear'])) {
+      $node->content[$last_section]['#suffix'] .= '<br style="clear:both;" />';
     }
   }
   return $node;
@@ -395,12 +416,12 @@ function project_project_nodeapi(&$node, $op, $arg) {
 }
 
 function project_project_insert($node) {
-  db_query("INSERT INTO {project_projects} (nid, uri, homepage, changelog, cvs, demo, release_directory, screenshots, documentation, license) VALUES (%d, '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s')", $node->nid, $node->uri, $node->homepage, $node->changelog, $node->cvs, $node->demo, $node->release_directory, $node->screenshots, $node->documentation, $node->license);
+  db_query("INSERT INTO {project_projects} (nid, uri, homepage, changelog, cvs, demo, screenshots, documentation, license) VALUES (%d, '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s')", $node->nid, $node->uri, $node->homepage, $node->changelog, $node->cvs, $node->demo, $node->screenshots, $node->documentation, $node->license);
 //  project_release_scan_directory($node->uri);
 }
 
 function project_project_update($node) {
-  db_query("UPDATE {project_projects} SET uri = '%s', homepage = '%s', changelog = '%s', cvs = '%s', demo = '%s', release_directory = '%s', screenshots = '%s', documentation = '%s', license = '%s' WHERE nid = %d", $node->uri, $node->homepage, $node->changelog, $node->cvs, $node->demo, $node->release_directory, $node->screenshots, $node->documentation, $node->license, $node->nid);
+  db_query("UPDATE {project_projects} SET uri = '%s', homepage = '%s', changelog = '%s', cvs = '%s', demo = '%s', screenshots = '%s', documentation = '%s', license = '%s' WHERE nid = %d", $node->uri, $node->homepage, $node->changelog, $node->cvs, $node->demo, $node->screenshots, $node->documentation, $node->license, $node->nid);
 //  project_release_scan_directory($node->uri);
 }
 

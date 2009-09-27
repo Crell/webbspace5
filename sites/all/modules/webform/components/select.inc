@@ -1,5 +1,10 @@
 <?php
-// $Id: select.inc,v 1.18.2.19.2.24 2008/10/22 19:38:59 quicksketch Exp $
+// $Id: select.inc,v 1.18.2.19.2.37 2009/03/04 05:05:18 quicksketch Exp $
+
+/**
+ * @file
+ *   Webform module multiple select component.
+ */
 
 /**
  * Create a default select component.
@@ -36,17 +41,18 @@ function _webform_edit_select($currfield) {
   $edit_fields = array();
   $edit_fields['extra']['items'] = array(
     '#type' => 'textarea',
-    '#title' => t("Options"),
+    '#title' => t('Options'),
     '#default_value' => $currfield['extra']['items'],
-    '#description' => t('A list of selectable options. One option per line. Key-value pairs may be entered seperated by pipes. i.e. safe_key|Some readable option') . theme('webform_token_help'),
+    '#description' => t('A list of selectable options. One option per line. Key-value pairs may be entered seperated by pipes, such as "safe_key|Some readable option". Option groups for lists and menus may be specified with &lt;Group Name&gt;. &lt;&gt; can be used to insert items at the root of the menu after specifying a group.') . theme('webform_token_help'),
     '#cols' => 60,
     '#rows' => 5,
     '#weight' => -2,
     '#required' => TRUE,
+    '#validate' => array('_webform_edit_validate_select' => array()),
   );
   $edit_fields['value'] = array(
     '#type' => 'textfield',
-    '#title' => t("Default value"),
+    '#title' => t('Default value'),
     '#default_value' => $currfield['value'],
     '#description' => t('The default value of the field. For multiple selects use commas to separate multiple defaults.') . theme('webform_token_help'),
     '#size' => 60,
@@ -55,33 +61,72 @@ function _webform_edit_select($currfield) {
   );
   $edit_fields['extra']['multiple'] = array(
     '#type' => 'checkbox',
-    '#title' => t("Multiple"),
+    '#title' => t('Multiple'),
     '#return_value' => 'Y',
-    '#default_value' => ($currfield['extra']['multiple'] == 'Y' ? TRUE : FALSE),
+    '#default_value' => $currfield['extra']['multiple'],
     '#description' => t('Check this option if the user should be allowed to choose multiple values.'),
   );
   $edit_fields['extra']['aslist'] = array(
     '#type' => 'checkbox',
-    '#title' => t("Listbox"),
+    '#title' => t('Listbox'),
     '#return_value' => 'Y',
-    '#default_value' => ($currfield['extra']['aslist'] == 'Y' ? TRUE : FALSE),
+    '#default_value' => $currfield['extra']['aslist'],
     '#description' => t('Check this option if you want the select component to be of listbox type instead of radiobuttons or checkboxes.'),
   );
   $edit_fields['extra']['email'] = array(
     '#type' => 'checkbox',
-    '#title' => t("E-mail a submission copy"),
+    '#title' => t('E-mail a submission copy'),
     '#return_value' => 1,
     '#default_value' => $currfield['extra']['email'],
-    '#description' => t('Check this option if this component contains an e-mail address that should get a copy of the submission. Emails are sent individually so other emails will not be shown to the recipient.') ." ".
+    '#description' => t('Check this option if this component contains an e-mail address that should get a copy of the submission. Emails are sent individually so other emails will not be shown to the recipient.') .' '.
                       t('To use the option with a select component, you must use key-value pairs seperated by pipes. i.e. user@example.com|Sample user.'),
   );
   return $edit_fields;
 }
 
-function _webform_edit_validate_select($form_values) {
-  // Currently no validation for selects.
-  // TODO: Validate e-mail addresses when used as keys?
-  return true;
+/**
+ * Element validation callback. Ensure keys are not duplicated.
+ */
+function _webform_edit_validate_select($element) {
+  // TODO: Validate e-mail addresses when used as keys?\
+
+  // Check for duplicate key values to prevent unexpected data loss.
+  if (!empty($element['#value'])) {
+    $lines = explode("\n", $element['#value']);
+    $existing_keys = array();
+    $duplicate_keys = array();
+    $group = '';
+    foreach ($lines as $line) {
+      $matches = array();
+      $line = trim($line);
+      if (preg_match('/^\<([^>]*)\>$/', $line, $matches)) {
+        $group = $matches[1];
+        $key = NULL; // No need to store group names.
+      }
+      elseif (preg_match('/^([^|]+)\|(.*)$/', $line, $matches)) {
+        $key = $matches[1];
+      }
+      else {
+        $key = $line;
+      }
+
+      if (isset($key)) {
+        if (isset($existing_keys[$group][$key])) {
+          $duplicate_keys[$key] = $key;
+        }
+        else {
+          $existing_keys[$group][$key] = $key;
+        }
+      }
+    }
+
+    if (!empty($duplicate_keys)) {
+      form_error($element, t('Options within the select list must be unique. The following keys have been used multiple times:') . theme('item_list', $duplicate_keys));
+    }
+
+  }
+
+  return TRUE;
 }
 
 /**
@@ -104,9 +149,9 @@ function _webform_render_select($component) {
 
   // Convert the user-entered options list into an array.
   $default_value = _webform_filter_values($component['value'], NULL, NULL, FALSE);
-  $options = _webform_select_options($component['extra']['items'], $component['extra']['aslist'] != 'Y');
+  $options = _webform_select_options($component['extra']['items'], $component['extra']['aslist'] !== 'Y');
 
-  if ($component['extra']['aslist'] == 'Y' && $component['extra']['multiple'] != 'Y') {
+  if ($component['extra']['aslist'] === 'Y' && $component['extra']['multiple'] !== 'Y') {
     $options = array('' => t('select...')) + $options;
   }
 
@@ -116,7 +161,7 @@ function _webform_render_select($component) {
   // Set the default value.
   if ($default_value != '') {
     // Convert default value to a list if necessary.
-    if ($component['extra']['multiple'] == 'Y') {
+    if ($component['extra']['multiple'] === 'Y') {
       $varray = array_filter(explode(',', $default_value));
       foreach ($varray as $key => $v) {
         $form_item['#default_value'][] = $v;
@@ -127,15 +172,15 @@ function _webform_render_select($component) {
     }
   }
 
-  if ($component['extra']['aslist'] == 'Y') {
+  if ($component['extra']['aslist'] === 'Y') {
     // Set display as a select list:
     $form_item['#type'] = 'select';
-    if ($component['extra']['multiple'] == 'Y') {
+    if ($component['extra']['multiple'] === 'Y') {
       $form_item['#multiple'] = TRUE;
     }
   }
   else {
-    if ($component['extra']['multiple'] == 'Y') {
+    if ($component['extra']['multiple'] === 'Y') {
       // Set display as a checkbox set.
       $form_item['#type'] = 'checkboxes';
       // Drupal 5 hack to correct default values.
@@ -176,19 +221,23 @@ function webform_expand_checkboxes($element) {
  * @param $component
  *   An array of information describing the component, directly correlating to
  *   the webform_component database schema.
+ * @param $enabled
+ *   If enabled, the value may be changed. Otherwise it will set to readonly.
  * @return
  *   Textual output formatted for human reading.
  */
-function _webform_submission_display_select($data, $component, $enabled = false) {
+function _webform_submission_display_select($data, $component, $enabled = FALSE) {
   $form_item = _webform_render_select($component);
-  if ($component['extra']['multiple'] == 'Y') {
+  if ($component['extra']['multiple'] === 'Y') {
     // Set the value as an array.
+    $form_item['#default_value'] = array();
     foreach ((array)$data['value'] as $key => $value) {
       $form_item['#default_value'][] = $value;
     }
   }
   else {
     // Set the value as a single string.
+    $form_item['#default_value'] = '';
     foreach ((array)$data['value'] as $value) {
       $form_item['#default_value'] = $value;
     }
@@ -218,7 +267,7 @@ function _webform_submit_select(&$data, $component) {
         $data[$key] = $options[$key];
       }
       // Checkboxes submit a value of 0 when not checked.
-      elseif ($value == 0 && $component['extra']['aslist'] != 'Y' && $component['extra']['multiple'] == 'Y') {
+      elseif ($value == 0 && $component['extra']['aslist'] !== 'Y' && $component['extra']['multiple'] === 'Y') {
         unset($data[$key]);
       }
       else {
@@ -241,22 +290,23 @@ function _webform_submit_select(&$data, $component) {
  */
 function theme_webform_mail_select($data, $component) {
   // Convert submitted 'safe' values to un-edited, original form.
-  $options = _webform_select_options($component['extra']['items']);
+  $options = _webform_select_options($component['extra']['items'], TRUE);
 
   // Generate the output.
+  $output = '';
   if ($component['extra']['multiple']) {
-    $output = $component['name'] .":\n";
+    $output .= $component['name'] .":\n";
     foreach ((array)$data as $value) {
       if ($value) {
         if ($options[$value]) {
-          $output .= "    - ". $options[$value] ."\n";
+          $output .= '    - '. $options[$value] ."\n";
         }
       }
     }
   }
   else {
-    if ($options[$data]) {
-      $output = $component['name'] .": ". $options[$data] ."\n";
+    if ($data !== '' && $options[$data]) {
+      $output .= $component['name'] .': '. $options[$data] ."\n";
     }
   }
   return $output;
@@ -268,7 +318,7 @@ function theme_webform_mail_select($data, $component) {
 function _webform_help_select($section) {
   switch ($section) {
     case 'admin/settings/webform#select_description':
-      return t("Allows creation of checkboxes, radio buttons, or select menus.");
+      return t('Allows creation of checkboxes, radio buttons, or select menus.');
   }
 }
 
@@ -279,23 +329,28 @@ function _webform_help_select($section) {
  * @param $component
  *   An array of information describing the component, directly correlating to
  *   the webform_component database schema
+ * @param $sids
+ *   An optional array of submission IDs (sid). If supplied, the analysis will be limited
+ *   to these sids.
  * @return
  *   An array of data rows, each containing a statistic for this component's
  *   submissions.
  */
-function _webform_analysis_rows_select($component) {
-  $options = _webform_select_options($component['extra']['items']);
+function _webform_analysis_rows_select($component, $sids = array()) {
+  $options = _webform_select_options($component['extra']['items'], TRUE);
+  $placeholders = count($sids) ? array_fill(0, count($sids), "'%s'") : array();
+  $sidfilter = count($sids) ? " AND sid in (".implode(",", $placeholders).")" : "";
 
   $query = 'SELECT data, count(data) as datacount '.
     ' FROM {webform_submitted_data} '.
     ' WHERE nid = %d '.
     ' AND cid = %d '.
-    " AND data != '0' AND data != '' ".
+    " AND data != '0' AND data != '' $sidfilter ".
     ' GROUP BY data ';
-  $result = db_query($query, $component['nid'], $component['cid']);
+  $result = db_query($query, array_merge(array($component['nid'], $component['cid']), $sids));
   $rows = array();
   while ($data = db_fetch_array($result)) {
-    if ($options[$data['data']]) {
+    if (isset($options[$data['data']])) {
       $display_option = $options[$data['data']];
     }
     else {
@@ -316,16 +371,17 @@ function _webform_analysis_rows_select($component) {
  *   Textual output formatted for human reading.
  */
 function _webform_table_data_select($data) {
+  $output = '';
   // Set the value as a single string.
   if (is_array($data['value'])) {
     foreach ($data['value'] as $value) {
       if ($value !== '0') {
-        $output .= check_plain($value) ."<br />";
+        $output .= check_plain($value) .'<br />';
       }
     }
   }
   else {
-    $output = check_plain(empty($data['value']['0']) ? "" : $data['value']['0']);
+    $output .= check_plain(empty($data['value']['0']) ? '' : $data['value']['0']);
   }
   return $output;
 }
@@ -352,7 +408,7 @@ function _webform_csv_headers_select($component) {
   if ($component['extra']['multiple']) {
     $headers[0][] = '';
     $headers[1][] = $component['name'];
-    $items = _webform_select_options($component['extra']['items']);
+    $items = _webform_select_options($component['extra']['items'], TRUE);
     $count = 0;
     foreach ($items as $key => $item) {
       // Empty column per sub-field in main header.
@@ -384,11 +440,12 @@ function _webform_csv_headers_select($component) {
  */
 function _webform_csv_data_select($data, $component) {
   $value = _webform_filter_values($component['value'], NULL, NULL, FALSE);
-  $options = _webform_select_options($component['extra']['items']);
+  $options = _webform_select_options($component['extra']['items'], TRUE);
   $return = array();
 
   if ($component['extra']['multiple']) {
     foreach ($options as $key => $item) {
+      
       if (in_array($key, (array)$data['value']) === TRUE) {
         $return[] = 'X';
       }
@@ -420,14 +477,14 @@ function _webform_select_options($text, $flat = FALSE) {
     $option = trim($option);
     /**
      * If the Key of the option is within < >, treat as an optgroup
-     * 
+     *
      * <Group 1>
      *   creates an optgroup with the label "Group 1"
-     * 
+     *
      * <>
-     *   Unsets the current group, allowing items to be inserted at the root element.  
+     *   Unsets the current group, allowing items to be inserted at the root element.
      */
-    
+
     if (preg_match('/^\<([^>]*)\>$/', $option, $matches)) {
       if (empty($matches[1])) {
         unset($group);
@@ -436,7 +493,7 @@ function _webform_select_options($text, $flat = FALSE) {
         $group = _webform_filter_values($matches[1], NULL, NULL, FALSE);
       }
     }
-    else if (preg_match('/^([^|]+)\|(.*)$/', $option, $matches)) {
+    elseif (preg_match('/^([^|]+)\|(.*)$/', $option, $matches)) {
       $key = _webform_filter_values($matches[1], NULL, NULL, FALSE);
       $value = _webform_filter_values($matches[2], NULL, NULL, FALSE);
       isset($group) ? $options[$group][$key] = $value : $options[$key] = $value;

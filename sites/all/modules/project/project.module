@@ -1,6 +1,5 @@
 <?php
-// $Id: project.module,v 1.309 2008/03/06 06:41:43 dww Exp $
-// $Name: DRUPAL-5--1-2 $
+// $Id: project.module,v 1.309.2.12 2008/12/29 17:54:18 dww Exp $
 
 $path = drupal_get_path('module', 'project');
 if (file_exists("$path/project.inc")) {
@@ -40,7 +39,7 @@ function _project_taxonomy_help($vid = 0, $vocab_link = TRUE) {
   $text .= '<p>'. t('To take full advantage of project categorization, add at least two levels of terms to this vocabulary. The first level will be the basic project types, e.g., "Modules", "Themes", "Translations".') .'</p>';
   $text .= '<p>'. t('Subterms of each of these types will be the categories that users can select to classify the projects. For example, "Modules" might have sub-terms including "Mail" and "XML".') .'</p>';
   if ($vocab_link) {
-    $text .= '<p>'. t('Use the <a href="@taxonomy-admin">vocabulary admininistration page</a> to view and add terms.', array('@taxonomy-admin' => url('admin/content/taxonomy/'. $vid))) .'</p>';
+    $text .= '<p>'. t('Use the <a href="@taxonomy-admin">vocabulary administration page</a> to view and add terms.', array('@taxonomy-admin' => url('admin/content/taxonomy/'. $vid))) .'</p>';
   }
   return $text;
 }
@@ -48,16 +47,65 @@ function _project_taxonomy_help($vid = 0, $vocab_link = TRUE) {
 /**
  * Implementation of hook_block().
  */
-function project_block($op = 'list', $delta = 0) {
+function project_block($op = 'list', $delta = 0, $edit = array()) {
   if ($op == 'list') {
     $blocks[0]['info'] = t('Project navigation');
+    if (module_exists('search')) {
+      $blocks[1]['info'] = t('Project search');
+    }
     return $blocks;
   }
   else if ($op == 'view') {
-    $block['subject'] = t('Project navigation');
-    $block['content'] = drupal_get_form('project_quick_navigate_form');
+    switch ($delta) {
+      case 0:
+        $block = array(
+          'subject' => t('Project navigation'),
+          'content' => drupal_get_form('project_quick_navigate_form'),
+        );
+        break;
+      case 1:
+        if (user_access('search content')) {
+          $block = array(
+            'subject' => t('Search projects'), 
+            'content' => drupal_get_form('project_search_block_form', 'project_project'),
+          );
+        }
+        break;
+    }
     return $block;
   }
+  elseif ($op == 'configure' && $delta == 1) {
+    $form = array();
+    $form['help_text'] = array(
+      '#type' => 'textfield',
+      '#title' => t('Help text'),
+      '#description' => t('Enter optional help text to display in the block.'),
+      '#default_value' => variable_get('project_search_block_help_text', ''),
+    );
+    return $form;
+  }
+  elseif ($op == 'save' && $delta == 1) {
+    variable_set('project_search_block_help_text', $edit['help_text']);
+  }
+}
+
+function project_search_block_form($node_type) {
+  $form = search_box('project_search_block_form_'. $node_type);
+  $form['node_type'] = array(
+    '#type' => 'value',
+    '#value' => $node_type,
+  );
+  $form['#base'] = 'project_search_block_form';
+  $help_text = variable_get('project_search_block_help_text', '');
+  if (!empty($help_text)) {
+     $element = 'project_search_block_form_'. $node_type .'_keys';
+     $form[$element]['#description'] = check_plain($help_text);
+  }
+  return $form;
+}
+
+function project_search_block_form_submit($form_id, $form_values) {
+  return 'search/node/type:'. $form_values['node_type'] .' '. trim($form_values[$form_id .'_'. $form_values['node_type'] .'_keys']);
 }
 
 function project_node_info() {
@@ -307,11 +355,11 @@ function project_term_path($term) {
 /**
  * Implementation of hook_taxonomy().
  */
-function project_taxonomy($op, $type, $object = NULL) {
-  if ($op == 'delete' && $type == 'vocabulary' && $object->vid == _project_get_vid())  {
+function project_taxonomy($op, $type, $array = NULL) {
+  if ($op == 'delete' && $type == 'vocabulary' && $array['vid'] == _project_get_vid())  {
     variable_del('project_vocabulary');
   }
-  elseif ($type == 'term' && $object->vid == _project_get_vid()) {
+  elseif ($type == 'term' && $array['vid'] == _project_get_vid()) {
     menu_rebuild();
   }
 }
@@ -344,7 +392,6 @@ function project_menu($may_cache) {
       $default_sort = variable_get('project_sort_method', 'category');
       $sort_methods = module_invoke_all('project_sort_methods', 'methods');
       $terms = taxonomy_get_tree(_project_get_vid());
-      $releases = variable_get('project_release_browse_versions', 0);
       foreach ($terms as $i => $term) {
         // Only use the first-level terms.
         if ($term->depth == 0) {
@@ -521,11 +568,13 @@ function project_page_overview($termname = NULL, $sort_method = NULL) {
   $sort_methods = module_invoke_all('project_sort_methods', 'methods');
 
   $output = '';
+  $active_tids = array();
   if (module_exists('project_release') && variable_get('project_release_browse_versions', 0)) {
     $version_form = drupal_get_form('project_release_version_filter_form');
     $output .= $version_form;
     // Read in requested version, if any.
     $version = isset($_SESSION['project_version']) ? $_SESSION['project_version'] : variable_get('project_release_overview', -1);
+    $active_tids = project_release_compatibility_list();
   }
 
   // If browsing by taxonomy, only fetch projects for this term.
@@ -558,7 +607,12 @@ function project_page_overview($termname = NULL, $sort_method = NULL) {
         $terms = array();
         if ($tree) {
           $tids = array();
-          if (variable_get('project_release_browse_versions', 0)) {
+          // Make sure the API compatability term contains one or more terms
+          // (not including the term with key of -1, which is always
+          // automatically added to the array of terms. If not then browsing
+          // by version is not possible.  project_release_compatibility_list()
+          // only returns active tids if browsing by version is enabled.
+          if (count($active_tids) > 1) {
             $version_params = array();
             if ($version != -1) {
               $version_where = 'tr.tid = %d';
@@ -566,7 +620,6 @@ function project_page_overview($termname = NULL, $sort_method = NULL) {
             }
             else {
               $placeholders = array();
-              $active_tids = project_release_compatibility_list();
               foreach ($active_tids as $tid => $api_term) {
                 $placeholders[] = '%d';
                 $version_params[] = $tid;
@@ -581,7 +634,7 @@ function project_page_overview($termname = NULL, $sort_method = NULL) {
             }
           }
           foreach ($tree as $cterm) {
-            if (!variable_get('project_release_browse_versions', 0) || ($version == -1) || array_key_exists($cterm->tid, $tids)) {
+            if (!module_exists('project_release') || (!variable_get('project_release_browse_versions', 0) || ($version == -1) || array_key_exists($cterm->tid, $tids))) {
               if ($tids[$cterm->tid]) {
                 $cterm->count = $tids[$cterm->tid];
               }
@@ -616,6 +669,7 @@ function project_page_overview($termname = NULL, $sort_method = NULL) {
         'DISTINCT(n.nid)',
         'n.title',
         'n.sticky',
+        'n.type',
         'nr.teaser',
         'nr.format',
       );
@@ -649,15 +703,22 @@ function project_page_overview($termname = NULL, $sort_method = NULL) {
         $sql_settings = array();
       }
 
+      $active_tids = array();
       if (module_exists('project_release')) {
         $project_release_sql = array(
           'joins' => array('INNER JOIN {project_release_projects} prp ON n.nid = prp.nid'),
           'wheres' => array('prp.releases = 1'),
         );
         $sql_settings = array_merge_recursive($sql_settings, $project_release_sql);
+        $active_tids = project_release_compatibility_list();
       }
 
-      if (variable_get('project_release_browse_versions', 0)) {
+      // Make sure the API compatability term contains one or more terms
+      // (not including the term with key of -1, which is always
+      // automatically added to the array of terms. If not then browsing
+      // by version is not possible.  project_release_compatibility_list()
+      // only returns active tids if browsing by version is enabled.
+      if (count($active_tids) > 1) {
         $release_settings = array(
           'fields' => array('prn.file_path', 'prn.version', 'MAX(prn.file_date) AS changed', 'COUNT(*) AS release_count'),
           'group_bys' => array('n.nid'),
@@ -669,12 +730,13 @@ function project_page_overview($termname = NULL, $sort_method = NULL) {
         );
         $release_settings['wheres'][] = 'rn.status = 1';
         if ($version != -1) {
+          $release_settings['joins'][] = 'INNER JOIN {project_release_supported_versions} prsv ON prsv.nid = p.nid AND prsv.tid = tr.tid';
           $release_settings['wheres'][] = 'tr.tid = %d';
+          $release_settings['wheres'][] = 'prsv.supported = 1';
           $release_settings['parameters'][] = $version;
         }
         else {
           $placeholders = array();
-          $active_tids = project_release_compatibility_list();
           foreach ($active_tids as $tid => $compatibility_term) {
             $placeholders[] = '%d';
             $release_settings['parameters'][] = $tid;
@@ -682,13 +744,18 @@ function project_page_overview($termname = NULL, $sort_method = NULL) {
           $where = 'tr.tid IN ('. implode(',', $placeholders) .')';
           $release_settings['wheres'][] = $where;
 
-          // We need to grab the uid and type for the project node, so
+          // We need to grab the uid for the project node, so
           // that node_access() will work properly without a full
           // node_load() when we're generating the download table in
           // project_release_table().
           $release_settings['fields'][] = 'n.uid';
-          $release_settings['fields'][] = 'n.type';
         }
+        $sql_settings = array_merge_recursive($sql_settings, $release_settings);
+      }
+      else {
+        $release_settings = array(
+          'fields' => array('n.changed AS changed'),
+        );
         $sql_settings = array_merge_recursive($sql_settings, $release_settings);
       }
 
@@ -778,7 +845,7 @@ function project_page_overview($termname = NULL, $sort_method = NULL) {
 
     // Make sure we have the latest release
     if (isset($project->release_count) && $project->release_count > 1 && $version != -1) {
-      $latest = db_fetch_object(db_query_range("SELECT file_path, version, file_date FROM {project_release_nodes} p INNER JOIN {node} n ON p.nid = n.nid INNER JOIN {term_node} t ON p.nid = t.nid LEFT JOIN {project_release_default_versions} prdv ON p.pid = prdv.nid AND prdv.tid = t.tid AND prdv.major = p.version_major WHERE p.pid = %d AND t.tid = %d AND n.status = 1 ORDER BY prdv.nid DESC, p.rebuild ASC, p.version_major ASC, p.version_minor DESC, p.version_patch DESC, p.file_date DESC", $project->nid, $version, 0, 1));
+      $latest = db_fetch_object(db_query_range("SELECT file_path, version, file_date FROM {project_release_nodes} p INNER JOIN {node} n ON p.nid = n.nid INNER JOIN {term_node} t ON p.nid = t.nid LEFT JOIN {project_release_supported_versions} prsv ON p.pid = prsv.nid AND prsv.tid = t.tid AND prsv.major = p.version_major WHERE p.pid = %d AND t.tid = %d AND prsv.supported = 1 AND n.status = 1 ORDER BY prsv.nid DESC, p.rebuild ASC, p.version_major ASC, p.version_minor DESC, p.version_patch DESC, p.file_date DESC", $project->nid, $version, 0, 1));
       $project->file_path = $latest->file_path;
       $project->version = $latest->version;
     }
@@ -918,14 +985,15 @@ function project_project_sort_methods($op, $method = NULL) {
             'order_bys' => array('n.sticky DESC', 'n.title ASC')
           );
         case 'date':
-          // TODO: this should all be conditional on project_release.module
           $date_sql = array(
             'order_bys' => array('changed DESC', 'n.sticky DESC', 'n.title ASC'),
             'group_bys' => array('n.nid'),
           );
-          if (!variable_get('project_release_browse_versions', 0)) {
-            $date_sql['fields'] = array('MAX(prn.file_date) AS changed');
-            $date_sql['joins'] = array('INNER JOIN {project_release_nodes} prn ON n.nid = prn.nid');
+          if (module_exists('project_release')) {
+            if (!variable_get('project_release_browse_versions', 0)) {
+              $date_sql['fields'] = array('MAX(prn.file_date) AS changed');
+              $date_sql['joins'] = array('INNER JOIN {project_release_nodes} prn ON n.nid = prn.nid');
+            }
           }
           return $date_sql;
         case 'name':
@@ -1040,7 +1108,8 @@ function project_quick_navigate_form() {
   $form['project_goto'] = array(
     '#type' => 'select',
     '#default_value' => '0',
-    '#options' => $projects
+    '#options' => $projects,
+    '#attributes' => array('title' => t('Select a project to view')),
   );
   $form['submit'] = array(
     '#type' => 'submit',
@@ -1049,10 +1118,14 @@ function project_quick_navigate_form() {
   return $form;
 }
 
-function project_quick_navigate_form_submit($form_id, $form_values) {
-  if (!empty($form_values['project_goto']) && (string)$form_values['project_goto'] != '0') {
-    drupal_goto($form_values['project_goto']);
+function project_quick_navigate_form_validate($form_id, $form_values) {
+  if (empty($form_values['project_goto'])) {
+    form_set_error('project_goto', t('You must select a project to navigate to.'));
   }
+}
+
+function project_quick_navigate_form_submit($form_id, $form_values) {
+  drupal_goto($form_values['project_goto']);
 }
 
 // Themables
@@ -1159,3 +1232,24 @@ function project_use_cvs($project) {
   }
 }
 
+/**
+ * Determines if the current site supports caching of project-related pages.
+ *
+ * The pages can be cached if:
+ *   1. Anonymous users have the 'access projects' permission.
+ *   2. No node access modules are installed.
+ *
+ * @return TRUE if the output can be cached, FALSE otherwise.
+ */
+function project_can_cache() {
+  $grants = module_implements('node_grants');
+  if (!empty($grants)) {
+    return FALSE;
+  }
+  $allowed_roles = user_roles(FALSE, 'access projects');
+  if (!isset($allowed_roles[DRUPAL_ANONYMOUS_RID])) {
+    return FALSE;
+  }
+
+  return TRUE;
+}

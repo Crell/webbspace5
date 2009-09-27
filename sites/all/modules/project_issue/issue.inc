@@ -1,6 +1,5 @@
 <?php
-// $Id: issue.inc,v 1.304.2.6 2008/04/14 00:27:24 thehunmonkgroup Exp $
-// $Name: DRUPAL-5--2-2 $
+// $Id: issue.inc,v 1.304.2.17 2009/01/07 20:48:32 dww Exp $
 
 function project_issue_page() {
   global $user;
@@ -76,14 +75,25 @@ function project_issue_page() {
 }
 
 /**
- * JS callback method to return updated elements on the issue form
- * when someone changes the "Project" selector. See project_issue.js.
+ * JS callback method to return updated elements on the issue form.
+ * This function is called when someone changes the "Project" selector.
+ * See project_issue.js.
+ *
+ * @param $pid
+ *   The nid of the project we're updating to.
+ * @param $issue_nid
+ *   The issue nid.
+ * @param $cid
+ *   The component from the previously selected project.
+ * @param $rid
+ *   The version from the previously selected project.
+ * @param $assigned_uid
+ *   The uid of the assigned user from the previously selected project.
  */
-function project_issue_update_project($pid, $cid = NULL, $rid = NULL) {
-
+function project_issue_update_project($pid, $issue_nid, $cid = NULL, $rid = NULL, $assigned_uid = NULL) {
   // Prevent a malicious user from snooping this callback directly.
-  $error = array('error' => t('Malicious attempt to access unauthorized information detected.'));
-  $node = node_load($pid);
+  $error = array('error' => t('An error was detected. Please try again.'));
+  $node = node_load(array('nid' => $pid, 'type' => 'project_project'));
   if ($node) {
     if (!node_access('view', $node)) {
       print drupal_to_js($error);
@@ -127,6 +137,31 @@ function project_issue_update_project($pid, $cid = NULL, $rid = NULL) {
       $return['rid'] .= drupal_render($form);
     }
   }
+
+  // Assigned.
+  if (is_numeric($issue_nid)) {
+    $issue = node_load(array('nid' => $issue_nid, 'type' => 'project_issue'));
+  }
+  else {
+    // @TODO:  This case should not ever be hit until
+    // http://drupal.org/node/197281 lands.
+    $issue = new stdClass;
+  }
+  $issue->pid = $pid;
+  $return['assigned'] = '';
+  $assigned_choices = project_issue_assigned_choices($issue);
+
+  $form = array();
+  $form['issue_info']['assigned'] = array(
+    '#type' => 'select',
+    '#title' => t('Assigned'),
+    '#default_value' => $assigned_uid,
+    '#options' => $assigned_choices,
+  );
+
+  // Build the HTML output for the assigned select.
+  $form = form_builder('assigned', $form);
+  $return['assigned'] .= drupal_render($form);
 
   // Components.
   $return['component'] = '';
@@ -334,7 +369,7 @@ function project_issue_statistics($project = 0) {
   $total = db_result(db_query(db_rewrite_sql('SELECT COUNT(p.nid) AS total FROM {project_issues} p INNER JOIN {node} n ON n.nid = p.nid WHERE n.status = 1%s', 'p'), $filter));
   $result = db_query(db_rewrite_sql('SELECT COUNT(p.nid) AS total, p.sid FROM {project_issues} p INNER JOIN {node} n ON n.nid = p.nid WHERE n.status = 1%s GROUP BY p.sid', 'p'), $filter);
   while ($stat = db_fetch_object($result)) {
-    $rows[$stat->sid][0] = project_issue_state($stat->sid);
+    $rows[$stat->sid][0] = check_plain(project_issue_state($stat->sid));
     $rows[$stat->sid][1] = array('data' => $stat->total, 'class' => 'project-issue-numeric');
     $rows[$stat->sid][2] = array('data' => number_format($stat->total / $total * 100) .'%', 'class' => 'project-issue-numeric-light');
     $rows[$stat->sid][3] = array('data' => '0', 'class' => 'project-issue-numeric');
@@ -355,7 +390,7 @@ function project_issue_statistics($project = 0) {
     $header = array();
     $header['project'] = array('data' => t('Project'), 'field' => 'title');
     foreach ($states as $key => $value) {
-      $header[$key] = array('data' => $value, 'field' => $key);
+      $header[$key] = array('data' => check_plain($value), 'field' => $key);
     }
     $header['total'] = array('data' => t('Total'), 'field' => 'total');
     // Force sorting arrow to appear on active first.
@@ -646,7 +681,7 @@ function project_issue_form($node, $include_metadata_fields = FALSE) {
   $form['#prefix'] = '<div class="project-issue">';
   $form['#suffix'] = '</div>';
 
-  // Fetch a list of all projects to make swapping simpler
+  // Fetch a list of all projects to test for access.
   $uris = NULL;
   $projects = array(t('<none>')) + project_projects_select_options($uris);
   if (count($projects) == 1) {
@@ -687,7 +722,11 @@ function project_issue_form($node, $include_metadata_fields = FALSE) {
   // Load Javascript (unless the issue is being edited).
   if ($allow_metadata_changes) {
     drupal_add_js(drupal_get_path('module', 'project_issue') .'/project_issue.js');
-    drupal_add_js(array('projectUrl' => url('project/issues/update_project')), 'setting');
+    drupal_add_js(
+      array(
+        'projectUrl' => url('project/issues/update_project'),
+        'issueNid' => $node->nid,
+      ), 'setting');
   }
 
   // Load the project and initialize some support arrays.
@@ -713,15 +752,7 @@ function project_issue_form($node, $include_metadata_fields = FALSE) {
     $categories = array_merge(array(t('<none>')), project_issue_category(0, 0));
     $priorities = project_issue_priority();
     $states = project_issue_state(0, true, $node->nid && ($node->uid == $user->uid), $node->sid);
-
-    // Setup the array of choices for who the issue is assigned to.
-    $assigned = array();
-    foreach (module_implements('project_issue_assignees') as $module) {
-      $function = "{$module}_project_issue_assignees";
-      $function($assigned, $node);
-    }
-    natcasesort($assigned);
-    $assigned = array(0 => empty($node->assigned) ? t('Unassigned') : t('Unassign')) + $assigned;
+    $assigned = project_issue_assigned_choices($node);
   }
 
   // Display the site-wide and/or per-project help text.
@@ -749,12 +780,14 @@ function project_issue_form($node, $include_metadata_fields = FALSE) {
       '#prefix' => '<div class="inline-options">',
       '#suffix' => '</div>',
     );
-    $form['project_info']['pid'] = array(
-      '#type' => 'select',
+    $form['project_info']['project_display'] = array(
+      '#type' => 'item',
       '#title' => t('Project'),
-      '#default_value' => $node->pid,
-      '#options' => $projects,
-      '#required' => TRUE,
+      '#value' => check_plain($project->title),
+    );
+    $form['project_info']['pid'] = array(
+      '#type' => 'value',
+      '#value' => $node->pid,
     );
     if ($releases) {
       $form['project_info']['rid'] = array(
@@ -813,7 +846,7 @@ function project_issue_form($node, $include_metadata_fields = FALSE) {
       $form['issue_info']['status'] = array(
         '#type' => 'item',
         '#title' => t('Status'),
-        '#value' => project_issue_state($default_state),
+        '#value' => check_plain(project_issue_state($default_state)),
       );
     }
   }
@@ -856,6 +889,27 @@ function project_issue_form($node, $include_metadata_fields = FALSE) {
     drupal_set_message($msg, 'error');
   }
   return $form;
+}
+
+/**
+ * Build an array of users to whom an issue may be assigned.
+ *
+ * @param $issue
+ *   The issue object.
+ * @return
+ *   A keyed array in the form uid => name containing users
+ *   to whom an issue may be assigned.
+ */
+function project_issue_assigned_choices($issue) {
+  // Setup the array of choices for who the issue is assigned to.
+  $assigned = array();
+  foreach (module_implements('project_issue_assignees') as $module) {
+    $function = "{$module}_project_issue_assignees";
+    $function($assigned, $issue);
+  }
+  natcasesort($assigned);
+  $assigned = array(0 => empty($issue->assigned) ? t('Unassigned') : t('Unassign')) + $assigned;
+  return $assigned;
 }
 
 /**
@@ -1005,6 +1059,20 @@ function project_issue_project_issue_assignees(&$assigned, $node) {
     // Always let the person replying assign it to themselves.
     $assigned[$user->uid] = $user->name;
   }
+
+  if (user_access('assign and be assigned project issues')) {
+    // All users are included if either anon or auth user has the perm.
+    if (db_result(db_query("SELECT rid FROM {permission} WHERE perm LIKE '%%%s%%' AND rid IN(%d, %d)", 'assign and be assigned project issues', DRUPAL_ANONYMOUS_RID, DRUPAL_AUTHENTICATED_RID))) {
+      $result = db_query("SELECT uid, name FROM {users}");
+    }
+    else {
+      $result = db_query("SELECT u.uid, u.name FROM {users} u INNER JOIN {users_roles} ur ON u.uid = ur.uid INNER JOIN {role} r ON ur.rid = r.rid INNER JOIN {permission} p ON p.rid = r.rid WHERE p.perm LIKE '%%%s%%'", 'assign and be assigned project issues');
+    }
+
+    while ($assignee = db_fetch_object($result)) {
+      $assigned[$assignee->uid] = $assignee->name;
+    }
+  }
 }
 
 /**
@@ -1018,10 +1086,21 @@ function project_issue_project_issue_assignees(&$assigned, $node) {
  *   An HTML string of the summary section.
  */
 function theme_project_issue_summary($current_data, $summary_links) {
-  $allowed_tags = array('a', 'em', 'strong');
+  $allowed_tags = array('a', 'em', 'strong', 'div', 'span');
+  // Fields that should be rendered as plain text, not filtered HTML.
+  $plain_fields = array('title', 'pid', 'rid');
+
   $rows = array();
   foreach ($current_data as $name => $values) {
-    $rows[] = array(filter_xss($values['label'], $allowed_tags) .':', filter_xss($values['current'], $allowed_tags));
+    $row = array();
+    $row[] = filter_xss($values['label'], $allowed_tags) .':';
+    if (in_array($name, $plain_fields)) {
+      $row[] = check_plain($values['current']);
+    }
+    else {
+      $row[] = filter_xss($values['current'], $allowed_tags);
+    }
+    $rows[] = $row;
   }
 
   $output = '<div id="project-summary-container" class="clear-block">';
@@ -1179,6 +1258,8 @@ function project_issue_access($op, $node) {
  * @return
  *   An array of states (sid as key, name as value) that match the
  *   given filters, or the name of the requested state.
+ *   NOTE: The state name returned is raw text, and should be filtered via
+ *   check_plain() or filter_xss() before being printed as HTML output.
  */
 function project_issue_state($sid = 0, $restrict = false, $is_author = false, $current_sid = 0, $defaults = false, $account = NULL) {
   static $options;
@@ -1658,31 +1739,31 @@ function project_issue_query_result($query = NULL, $format = 'html', $show_searc
     $query->projects = $project->nid;
     $links = array();
     if (node_access('create', 'project_issue')) {
-      $links[] = array(
+      $links['create'] = array(
         'title' => t('Create'),
         'href' => "node/add/project-issue/$project->uri",
         'attributes' => array('title' => t('Create a new issue for @project.', array('@project' => $project->uri))),
       );
     }
     else {
-      $links[] = array(
+      $links['create'] = array(
         'title' => theme('project_issue_create_forbidden', $project->uri),
         'html'  => TRUE,
       );
     }
-    $links[] = array(
+    $links['statistics'] = array(
       'title' => t('Statistics'),
       'href' => "project/issues/statistics/$project->uri",
       'attributes' => array('title' => t('See statistics about @project issues.', array('@project' => $project->uri))),
     );
     if ($user->uid) {
-      $links[] = array(
+      $links['subscribe'] = array(
         'title' => t('Subscribe'),
         'href' => "project/issues/subscribe-mail/$project->uri",
         'attributes' => array('title' => t('Receive email updates about @project issues.', array('@project' => $project->uri))),
       );
     }
-    $links[] = array(
+    $links['search'] = array(
       'title' => t('Advanced search'),
       'href' => "project/issues/search/$project->uri",
       'attributes' => array('title' => t('Use the advanced search page to find @project issues.', array('@project' => $project->uri))),
@@ -1696,31 +1777,31 @@ function project_issue_query_result($query = NULL, $format = 'html', $show_searc
     }
     $links = array();
     if (node_access('create', 'project_issue')) {
-      $links[] = array(
+      $links['create'] = array(
         'title' => t('Create'),
         'href' => "node/add/project-issue",
         'attributes' => array('title' => t('Create a new issue.')),
       );
     }
     else {
-      $links[] = array(
+      $links['create'] = array(
         'title' => theme('project_issue_create_forbidden', $project->uri),
         'html'  => TRUE,
       );
     }
-    $links[] = array(
+    $links['statistics'] = array(
       'title' => t('Statistics'),
       'href' => "project/issues/statistics",
       'attributes' => array('title' => t('See statistics about issues.')),
     );
     if ($user->uid) {
-      $links[] = array(
+      $links['subscribe'] = array(
         'title' => t('Subscribe'),
         'href' => "project/issues/subscribe-mail",
         'attributes' => array('title' => t('Receive email updates about issues.')),
       );
     }
-    $links[] = array(
+    $links['search'] = array(
       'title' => t('Advanced search'),
       'href' => "project/issues/search/",
       'attributes' => array('title' => t('Use the advanced search page for finding issues.')),
@@ -1749,7 +1830,7 @@ function project_issue_query_result($query = NULL, $format = 'html', $show_searc
   $search = '';
   if ($show_search) {
     // Action links:
-    $search .= theme('links', $links);
+    $search .= theme('project_issue_query_result_links', $links);
     $search .= drupal_get_form('project_issue_query_result_quick_search', $query, $projects, $states, $priorities);
   }
 
@@ -1790,7 +1871,7 @@ function project_issue_query_result($query = NULL, $format = 'html', $show_searc
         $title = l($node->title, "node/$node->nid");
       }
       $row[] = $title . theme('mark', node_mark($node->nid, $node->changed));
-      $row[] = $states[$node->sid];
+      $row[] = check_plain($states[$node->sid]);
       $row[] = $priorities[$node->priority];
       $row[] = project_issue_category($node->category, 0);
       if (count($releases)) {
@@ -1805,7 +1886,7 @@ function project_issue_query_result($query = NULL, $format = 'html', $show_searc
     }
     $query = project_issue_query_pager($query);
 
-    $rss = theme('feed_icon', url('project/issues/rss', project_issue_query_url($query)));
+    drupal_add_feed(url('project/issues/rss', project_issue_query_url($query)), t('Issues'));
     $link = l(t('#'), 'project/issues', array('title' => t('Permalink to search query.')), project_issue_query_url($query));
     if ($pager = theme('pager', NULL, $issues_per_page, 0)) {
       $rows[] = array(array('data' => $pager, 'colspan' => count($header)));
@@ -1821,7 +1902,7 @@ function project_issue_query_result($query = NULL, $format = 'html', $show_searc
 
   $output .= '</div>';
   $output .= theme('table', $header, $rows);
-  $output .= "$rss $link";
+  $output .= $link;
 
   $output .= '</div>';
   return $output;
@@ -1909,6 +1990,19 @@ function project_issue_query_result_quick_search($query, $projects, $states, $pr
     '#value' => t('Search'),
   );
   return $form;
+}
+
+/**
+ * Return the HTML to use for the links at the top of issue query pages.
+ *
+ * @param $links
+ *   Array of links, indexed by the action ('create', 'search', etc).
+ *
+ * @see project_issue_query_result()
+ * @see theme_links()
+ */
+function theme_project_issue_query_result_links($links) {
+  return theme('links', $links);
 }
 
 function theme_project_issue_query_result_quick_search($form) {

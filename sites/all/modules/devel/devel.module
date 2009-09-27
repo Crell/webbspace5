@@ -1,5 +1,5 @@
 <?php
-// $Id: devel.module,v 1.106.4.101 2008/10/09 03:08:28 weitzman Exp $
+// $Id: devel.module,v 1.106.4.107 2009/09/23 18:42:01 davereid Exp $
 
 // This module holds functions useful for Drupal development.
 // Please contribute!
@@ -21,13 +21,15 @@ define('DEVEL_ERROR_HANDLER_BACKTRACE', 2);
 
 define('DEVEL_MIN_TEXTAREA', 50);
 
+define('DEVEL_CURRENT_DRUPAL_VERSION',5);
+
 /**
  * Implementation of hook_help().
  */
 function devel_help($section) {
   switch ($section) {
     case 'admin/settings/devel':
-      return '<p>'. t('Helper functions, pages, and blocks to assist Drupal developers. The devel blocks can be managed via the !block page.', array('!block' => l(t('block administration'), 'admin/build/block'))). '</p>';
+      return '<p>'. t('Helper functions, pages, and blocks to assist Drupal developers. The devel blocks can be managed via the <a href="@block">block administration</a> page.', array('@block' => url('admin/build/block'))). '</p>';
     case 'devel/reference':
       return '<p>'. t('This is a list of defined user functions that generated this current request lifecycle. Click on a function name to view its documention.'). '</p>';
     case 'devel/reinstall':
@@ -88,6 +90,13 @@ function devel_menu($may_cache) {
         'type' => MENU_CALLBACK,
       );
     }
+    $items[] = array('path' => 'devel/php',
+      'title' => t('Execute PHP Code'),
+      'callback' => 'drupal_get_form',
+      'callback arguments' =>  array('devel_execute_form'),
+      'access' => user_access('execute php code'),
+      'type' => MENU_CALLBACK,
+    );
     $items[] = array('path' => 'devel/variable',
       'title' => t('Variable editor'),
       'callback' => 'devel_variable_page',
@@ -291,7 +300,25 @@ function backtrace_error_handler($errno, $message, $filename, $line) {
   if (error_reporting() == 0) return;
   
   if ($errno & (E_ALL ^ E_NOTICE)) {
-    $types = array(1 => 'error', 2 => 'warning', 4 => 'parse error', 8 => 'notice', 16 => 'core error', 32 => 'core warning', 64 => 'compile error', 128 => 'compile warning', 256 => 'user error', 512 => 'user warning', 1024 => 'user notice', 2048 => 'strict warning');
+    // We can't use the PHP E_* constants here as not all versions of PHP have all
+    // the constants defined, so for consistency, we just use the numeric equivelant.
+    $types = array(
+      1 => 'error',
+      2 => 'warning',
+      4 => 'parse error',
+      8 => 'notice',
+      16 => 'core error',
+      32 => 'core warning',
+      64 => 'compile error',
+      128 => 'compile warning',
+      256 => 'user error',
+      512 => 'user warning',
+      1024 => 'user notice',
+      2048 => 'strict warning',
+      4096 => 'recoverable error',
+      8192 => 'deprecated',
+      16384 => 'user deprecated',
+    );
     $entry = $types[$errno] .': '. $message .' in '. $filename .' on line '. $line .'.';
 
     if (variable_get('error_level', 1) == 1) {
@@ -302,7 +329,7 @@ function backtrace_error_handler($errno, $message, $filename, $line) {
       krumo($nicetrace);
     }
 
-    watchdog('php', '%message in %file on line %line.', array('%error' => $types[$errno], '%message' => $message, '%file' => $filename, '%line' => $line), WATCHDOG_ERROR);
+    watchdog('php', t('%message in %file on line %line.', array('%error' => $types[$errno], '%message' => $message, '%file' => $filename, '%line' => $line)), WATCHDOG_ERROR);
   }
 }
 
@@ -352,6 +379,7 @@ function devel_block($op = 'list', $delta = 0, $edit = array()) {
         if (user_access('access devel information')) {
           $links[] = l('Devel settings', 'admin/settings/devel', array('title' => t('Adjust module settings for devel module')));
           $links[] = l('Empty cache', 'devel/cache/clear', array('title' => t('Clear the database cache tables which store page, menu, node, and variable caches.')), drupal_get_destination());
+          $links[] = l('Execute PHP Code', 'devel/php', array('title' => t('Execute some PHP code')));
           $links[] = l('Run cron', 'admin/logs/status/run-cron', array('title' => t('Execute functions scheduled for cron runs.')), drupal_get_destination());
           $links[] = l('Phpinfo()', 'admin/logs/status/php');
           $links[] = l('Function reference', 'devel/reference', array('title' => t('View a list of currently defined user functions with documentation links')));
@@ -624,7 +652,13 @@ function devel_function_reference() {
   $ufunctions = $functions['user'];
   sort($ufunctions);
   foreach($ufunctions as $function) {
-    $links[] = l($function, "http://api.drupal.org/api/HEAD/function/$function");
+    if (class_exists('ReflectionFunction')) {
+      $func = new ReflectionFunction($function);
+      $isNotCore = stristr($func->getFileName(), realpath($_SERVER['DOCUMENT_ROOT'] . '/sites')) ? true: false;
+    }
+    if (!$isNotCore) {
+      $links[] = l($function, "http://api.drupal.org/api/function/$function/" . DEVEL_CURRENT_DRUPAL_VERSION);
+    }
   }
   return theme('item_list', $links);
 }
@@ -742,7 +776,7 @@ function devel_admin_settings() {
     '#title' => t('Error handler'),
     '#default_value' => variable_get('devel_error_handler', DEVEL_ERROR_HANDLER_STANDARD),
     '#options' => array(DEVEL_ERROR_HANDLER_NONE => t('None'), DEVEL_ERROR_HANDLER_STANDARD => t('Standard drupal'), DEVEL_ERROR_HANDLER_BACKTRACE => t('Backtrace')),
-    '#description' => t('Choose an error handler for your site. <em>Backtrace</em> prints nice debug information when an error is noticed, and you !choose. <strong>Backtrace requires the <a href="!krumo">krumo library</a></strong>. <em>None</em> is a good option when stepping through the site in your debugger.', array('!krumo' => url("http://krumo.sourceforge.net"), '!choose' => l(t('choose to show errors on screen'), 'admin/settings/error-reporting'))),
+    '#description' => t('Choose an error handler for your site. <em>Backtrace</em> prints nice debug information when an error is noticed, and you <a href="@choose">choose to show errors on screen</a>. <strong>Backtrace requires the <a href="@krumo">krumo library</a></strong>. <em>None</em> is a good option when stepping through the site in your debugger.', array('@krumo' => url('http://krumo.sourceforge.net'), '@choose' => url('admin/settings/error-reporting'))),
   );
 
   // Save any old SMTP library
@@ -1000,7 +1034,7 @@ function devel_variable_edit($name) {
       '#value' => t('Sorry, complex variable types may not be edited yet. Use the <em>Execute PHP</em> block and the <a href="@variable-set-doc">variable_set()</a> function.', array('@variable-set-doc' => 'http://api.drupal.org/api/HEAD/function/variable_set'))
     );
   }
-  drupal_set_title($name);
+  drupal_set_title(check_plain($name));
   return $form;
 }
 

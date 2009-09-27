@@ -29,4 +29,4 @@ The project family of modules is currently being co-maintained by:
 - Chad Phillips (http://drupal.org/user/22079) a.k.a. "hunmonk"
 
 $Id: README.txt,v 1.4 2008/01/01 03:54:39 thehunmonkgroup Exp $
-$Name: DRUPAL-5--2-2 $
+$Name: DRUPAL-5--2-3 $

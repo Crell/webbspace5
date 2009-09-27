@@ -1,6 +1,5 @@
 <?php
-// $Id: project_issue.install,v 1.48.2.1 2008/04/13 21:13:58 thehunmonkgroup Exp $
-// $Name: DRUPAL-5--2-2 $
+// $Id: project_issue.install,v 1.48.2.5 2008/12/28 23:33:26 dww Exp $
 
 function project_issue_install() {
   // We need to check this before we try to create the table, so that
@@ -30,7 +29,7 @@ function project_issue_install() {
           rid int(10) unsigned NOT NULL default '0',
           assigned int(10) unsigned NOT NULL default '0',
           sid int(10) unsigned NOT NULL default '0',
-          original_issue_data text NOT NULL default '',
+          original_issue_data text NOT NULL,
           last_comment_id int NOT NULL default 0,
           db_lock tinyint NOT NULL default 0,
           PRIMARY KEY (nid),
@@ -208,6 +207,8 @@ function project_issue_uninstall() {
     'project_issue_show_comment_signatures',
     'project_issue_site_help',
     'project_issue_invalid_releases',
+    'project_issue_followup_user',
+    'project_issue_hook_cron',
   );
   foreach ($variables as $variable) {
     variable_del($variable);
@@ -770,6 +771,23 @@ function project_issue_update_5207() {
     }
   }
 
+  return $ret;
+}
+
+/**
+ * Replace project_issue_followup_user in {variable}.
+ */
+function project_issue_update_5208() {
+  $ret = array();
+  $uid = variable_get('project_issue_auto_close_user', NULL);
+  if (isset($uid)) {
+    // Convert anon user back to a uid.
+    if ($uid == 'anon') {
+      $uid = 0;
+    }
+    variable_set('project_issue_followup_user', $uid);
+    variable_del('project_issue_auto_close_user');
+  }
   return $ret;
 }
 
