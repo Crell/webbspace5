@@ -10,15 +10,16 @@ define('WEBBTOPIC_AGE_AUTOCOMPLETE', 5184000); // 60 days, in seconds
  */
 function webbtopic_menu($may_cache) {
   $items = array();
-  
+
   if(!$may_cache) {
     $items[] = array(
       'path' => 'webbtopic/autocomplete',
       'callback' => 'webbtopic_autocomplete',
       'access' => user_access('access content'),
+      'type' => MENU_CALLBACK,
     );
   }
-  
+
   return $items;
 }
 
@@ -39,27 +40,27 @@ function webbtopic_perm() {
  * 	The string to auto-complete if possible.
  */
 function webbtopic_autocomplete($gid, $string) {
-  
+
   $matches = array();
   if ($string) {
     $result = db_query_range("SELECT DISTINCT wt.topic
-      FROM {webbtopic_topic} wt 
-        INNER JOIN {node} n ON wt.nid=n.nid 
-  	  WHERE wt.nid IN (SELECT nid FROM {og_ancestry} WHERE group_nid=%d) 
+      FROM {webbtopic_topic} wt
+        INNER JOIN {node} n ON wt.nid=n.nid
+  	  WHERE wt.nid IN (SELECT nid FROM {og_ancestry} WHERE group_nid=%d)
   	    AND %d-n.changed < %d
-  	    AND topic LIKE ('%s%%') 
+  	    AND topic LIKE ('%s%%')
   	  ORDER BY topic", array(
-        $gid, 
+        $gid,
         time(),
         WEBBTOPIC_AGE_AUTOCOMPLETE,
-        $string, 
+        $string,
       ), 0, WEBBTOPIC_NUM_AUTOCOMPLETE);
-      
+
     while ($data = db_fetch_object($result)) {
       $value = check_plain($data->topic);
       $matches[$value] = $value;
     }
-    
+
   }
   print drupal_to_js($matches);
   exit();
@@ -69,11 +70,11 @@ function webbtopic_autocomplete($gid, $string) {
  * Implementation of hook_form_alter().
  */
 function webbtopic_form_alter($form_id, &$form) {
-  
+
   if (isset($form['type']) && 'board_node_form' == $form_id) {
     _webbtopic_form_alter_board_node_form($form_id, $form);
   }
-  
+
   if (isset($form['type']) && $form['type']['#value'] .'_node_form' == $form_id) {
     $gids = $_GET['gids'];
     if (empty($gids)) {
@@ -82,14 +83,14 @@ function webbtopic_form_alter($form_id, &$form) {
     if (!empty($gids[0])) {
       $group = node_load($gids[0]);
       if (in_array($form['#node']->type, $group->webb['topic_nodetypes'])) {
-        return _webbtopic_form_alter_withtopic($form_id, $form, $gids[0]);        
+        return _webbtopic_form_alter_withtopic($form_id, $form, $gids[0]);
       }
     }
   }
 }
 
 function _webbtopic_form_alter_withtopic($form_id, &$form, $gid) {
-  
+
   $node = $form['#node'];
   $group = node_load($gid);
 
@@ -99,7 +100,7 @@ function _webbtopic_form_alter_withtopic($form_id, &$form, $gid) {
     $parent = node_load($parent_nid);
     $default = $parent->webb['webbtopic_topic'];
   }
-  
+
   drupal_add_js(drupal_get_path('module', 'webbtopic') . '/webbtopic.js', 'module');
   $form['webb'] = array(
     '#tree' => TRUE,
@@ -108,7 +109,7 @@ function _webbtopic_form_alter_withtopic($form_id, &$form, $gid) {
   $form['webb']['webbtopic_topic'] = array(
     '#type' => 'textfield',
   	'#title' => $group->webb['topic_label'],
-    '#default_value' => $default, 
+    '#default_value' => $default,
     '#required' => TRUE,
     '#autocomplete_path' => 'webbtopic/autocomplete/'. $group->nid,
   	'#description' => t('Recently used: ') . _webbtopic_form_alter_withtopic_get_suggestions($group),
@@ -122,15 +123,15 @@ function _webbtopic_form_alter_withtopic_get_suggestions($group) {
   // we order by the last use and have a different set of limits.
   // We also don't restrict on the name pattern at all.
   $result = db_query_range("SELECT DISTINCT wt.topic
-    FROM {webbtopic_topic} wt 
-      INNER JOIN {node} n ON wt.nid=n.nid 
-    WHERE wt.nid IN (SELECT nid FROM {og_ancestry} WHERE group_nid=%d) 
+    FROM {webbtopic_topic} wt
+      INNER JOIN {node} n ON wt.nid=n.nid
+    WHERE wt.nid IN (SELECT nid FROM {og_ancestry} WHERE group_nid=%d)
       AND %d-n.changed < %d
     ORDER BY n.changed", array(
-      $group->nid, 
+      $group->nid,
       time(),
       WEBBTOPIC_AGE_SUGGESTIONS,
-      $string, 
+      $string,
     ), 0, WEBBTOPIC_NUM_SUGGESTIONS);
 
   while ($record = db_fetch_object($result)) {
@@ -151,10 +152,10 @@ function theme_webbtopic_topic($name) {
 }
 
 function _webbtopic_form_alter_board_node_form($form_id, &$form) {
-  
+
   // Allow an admin (only) to configure what the topic label is and on what nodes
   // it applies for nodes in this group.
-  
+
   $form['webbtopic'] = array(
   	'#type' => 'fieldset',
     '#title' => t('Topics'),
@@ -168,7 +169,7 @@ function _webbtopic_form_alter_board_node_form($form_id, &$form) {
     '#description' => t('Specify the topic label to be applied to posts in this group.'),
     '#default_value' => $form['#node']->webb['topic_label'],
   );
-  
+
   foreach (node_get_types() as $type => $type_object) {
     $options[$type] = $type_object->name;
     if (is_array($form['#node']->webb['topic_nodetypes']) && in_array($type, $form['#node']->webb['topic_nodetypes'])) {
@@ -182,9 +183,9 @@ function _webbtopic_form_alter_board_node_form($form_id, &$form) {
     '#description' => t('Specify content types to which topics should be applied within this group.'),
     '#default_value' => $defaults,
   );
-  
+
   $form['#submit']['webbtopic_board_node_form_submit'] = array();
-  
+
 }
 
 function _webbtopic_nodeapi_board(&$node, $op, $a3 = NULL, $a4 = NULL) {
@@ -239,7 +240,7 @@ function _webbtopic_nodeapi_board(&$node, $op, $a3 = NULL, $a4 = NULL) {
 
 
 function _webbtopic_nodeapi_withtopic(&$node, $op, $a3 = NULL, $a4 = NULL) {
-  
+
   switch ($op) {
     case 'prepare':
       break;
@@ -288,7 +289,7 @@ function webbtopic_nodeapi(&$node, $op, $a3 = NULL, $a4 = NULL) {
   if (!empty($node->og_groups[0])) {
     $group = node_load($node->og_groups[0]);
     if (!empty($group->webb['topic_nodetypes']) && in_array($node->type, $group->webb['topic_nodetypes'])) {
-      return _webbtopic_nodeapi_withtopic($node, $op, $a3, $a4);        
+      return _webbtopic_nodeapi_withtopic($node, $op, $a3, $a4);
     }
   }
 }
