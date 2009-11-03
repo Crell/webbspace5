@@ -1,5 +1,5 @@
 <?php
-// $Id: common.inc,v 1.611.2.20 2008/07/09 19:34:30 drumm Exp $
+// $Id: common.inc,v 1.611.2.25 2009/09/16 17:29:09 drumm Exp $
 
 /**
  * @file
@@ -149,6 +149,15 @@ function drupal_set_header($header = NULL) {
  */
 function drupal_get_headers() {
   return drupal_set_header();
+}
+
+/**
+ * Make any final alterations to the rendered xhtml.
+ */
+function drupal_final_markup($content) {
+  // Make sure that the charset is always specified as the first element of the
+  // head region to prevent encoding-based attacks.
+  return preg_replace('/<head[^>]*>/i', "\$0\n<meta http-equiv=\"Content-Type\" content=\"text/html; charset=utf-8\" />", $content, 1);
 }
 
 /**
@@ -418,6 +427,18 @@ function drupal_http_request($url, $headers = array(), $method = 'GET', $data = 
   // Parse the URL, and make sure we can handle the schema.
   $uri = parse_url($url);
 
+  if ($uri == FALSE) {
+    $result->error = 'unable to parse URL';
+    $result->code = -1001;
+    return $result;
+  }
+
+  if (!isset($uri['scheme'])) {
+    $result->error = 'missing schema';
+    $result->code = -1002;
+    return $result;
+  }
+
   switch ($uri['scheme']) {
     case 'http':
       $port = isset($uri['port']) ? $uri['port'] : 80;
@@ -432,6 +453,7 @@ function drupal_http_request($url, $headers = array(), $method = 'GET', $data = 
       break;
     default:
       $result->error = 'invalid schema '. $uri['scheme'];
+      $result->code = -1003;
       return $result;
   }
 
@@ -642,8 +664,8 @@ function locale_initialize() {
 /**
  * Translate strings to the current locale.
  *
- * All human-readable text that will be displayed somewhere within a page should be
- * run through the t() function.
+ * Human-readable text that will be displayed somewhere within a page should
+ * be run through the t() function.
  *
  * Examples:
  * @code
@@ -679,27 +701,27 @@ function locale_initialize() {
  *     $message[] = t("If you don't want to receive such e-mails, you can change your settings at !url.", array('!url' => url("user/$account->uid", NULL, NULL, TRUE)));
  *   @endcode
  *
- * - @variable, which indicates that the text should be run through check_plain,
- *   to strip out HTML characters. Use this for any output that's displayed within
- *   a Drupal page.
+ * - @variable, which indicates that the text should be run through
+ *   check_plain, to escape HTML characters. Use this for any output that's
+ *   displayed within a Drupal page.
  *   @code
  *     drupal_set_title($title = t("@name's blog", array('@name' => $account->name)));
  *   @endcode
  *
- * - %variable, which indicates that the string should be highlighted with
- *   theme_placeholder() which shows up by default as <em>emphasized</em>.
+ * - %variable, which indicates that the string should be HTML escaped and
+ *   highlighted with theme_placeholder() which shows up by default as
+ *   <em>emphasized</em>.
  *   @code
- *     watchdog('mail', t('%name-from sent %name-to an e-mail.', array('%name-from' => $user->name, '%name-to' => $account->name)));
+ *     $message = t('%name-from sent %name-to an e-mail.', array('%name-from' => $user->name, '%name-to' => $account->name));
  *   @endcode
  *
  * When using t(), try to put entire sentences and strings in one t() call.
  * This makes it easier for translators, as it provides context as to what
- * each word refers to. HTML markup within translation strings is allowed,
- * but should be avoided if possible. The exception is embedded links; link
- * titles add additional context for translators so should be kept in the main
- * string.
+ * each word refers to. HTML markup within translation strings is allowed, but
+ * should be avoided if possible. The exception are embedded links; link
+ * titles add a context for translators, so should be kept in the main string.
  *
- * Here is an example of an incorrect use if t():
+ * Here is an example of incorrect usage of t():
  * @code
  *   $output .= t('<p>Go to the @contact-page.</p>', array('@contact-page' => l(t('contact page'), 'contact')));
  * @endcode
@@ -709,7 +731,7 @@ function locale_initialize() {
  *   $output .= '<p>'. t('Go to the <a href="@contact-page">contact page</a>.', array('@contact-page' => url('contact'))) .'</p>';
  * @endcode
  *
- * Also avoid escaping quotation marks wherever possible.
+ * Avoid escaping quotation marks wherever possible.
  *
  * Incorrect:
  * @code
@@ -720,6 +742,101 @@ function locale_initialize() {
  * @code
  *   $output .= t("Don't click me.");
  * @endcode
+ *
+ * Because t() is designed for handling code-based strings, in almost all
+ * cases, the actual string and not a variable must be passed through t().
+ *
+ * Extraction of translations is done based on the strings contained in t()
+ * calls. If a variable is passed through t(), the content of the variable
+ * cannot be extracted from the file for translation.
+ *
+ * Incorrect:
+ * @code
+ *   $message = 'An error occurred.';
+ *   drupal_set_message(t($message), 'error');
+ *   $output .= t($message);
+ * @endcode
+ *
+ * Correct:
+ * @code
+ *   $message = t('An error occurred.');
+ *   drupal_set_message($message, 'error');
+ *   $output .= $message;
+ * @endcode
+ *
+ * The only case in which variables can be passed safely through t() is when
+ * code-based versions of the same strings will be passed through t() (or
+ * otherwise extracted) elsewhere.
+ *
+ * In some cases, modules may include strings in code that can't use t()
+ * calls. For example, a module may use an external PHP application that
+ * produces strings that are loaded into variables in Drupal for output.
+ * In these cases, module authors may include a dummy file that passes the
+ * relevant strings through t(). This approach will allow the strings to be
+ * extracted.
+ *
+ * Sample external (non-Drupal) code:
+ * @code
+ *   class Time {
+ *     public $yesterday = 'Yesterday';
+ *     public $today = 'Today';
+ *     public $tomorrow = 'Tomorrow';
+ *   }
+ * @endcode
+ *
+ * Sample dummy file.
+ * @code
+ *   // Dummy function included in example.potx.inc.
+ *   function example_potx() {
+ *     $strings = array(
+ *       t('Yesterday'),
+ *       t('Today'),
+ *       t('Tomorrow'),
+ *     );
+ *     // No return value needed, since this is a dummy function.
+ *   }
+ * @endcode
+ *
+ * Having passed strings through t() in a dummy function, it is then
+ * okay to pass variables through t().
+ *
+ * Correct (if a dummy file was used):
+ * @code
+ *   $time = new Time();
+ *   $output .= t($time->today);
+ * @endcode
+ *
+ * However tempting it is, custom data from user input or other non-code
+ * sources should not be passed through t(). Doing so leads to the following
+ * problems and errors:
+ *  - The t() system doesn't support updates to existing strings. When user
+ *    data is updated, the next time it's passed through t() a new record is
+ *    created instead of an update. The database bloats over time and any
+ *    existing translations are orphaned with each update.
+ *  - The t() system assumes any data it receives is in English. User data may
+ *    be in another language, producing translation errors.
+ *  - The "Built-in interface" text group in the locale system is used to
+ *    produce translations for storage in .po files. When non-code strings are
+ *    passed through t(), they are added to this text group, which is rendered
+ *    inaccurate since it is a mix of actual interface strings and various user
+ *    input strings of uncertain origin.
+ *
+ * Incorrect:
+ * @code
+ *   $item = item_load();
+ *   $output .= check_plain(t($item['title']));
+ * @endcode
+ *
+ * Instead, translation of these data can be done through the locale system,
+ * either directly or through helper functions provided by contributed
+ * modules.
+ * @see hook_locale()
+ *
+ * During installation, st() is used in place of t(). Code that may be called
+ * during installation or during normal operation should use the get_t()
+ * helper function.
+ * @see st()
+ * @see get_t()
  *
  * @param $string
  *   A string containing the English string to translate.
@@ -793,7 +910,7 @@ function valid_email_address($mail) {
  *
  * This function should only be used on actual URLs. It should not be used for
  * Drupal menu paths, which can contain arbitrary characters.
- *
+ * Valid values per RFC 3986.
  * @param $url
  *   The URL to verify.
  * @param $absolute
@@ -802,12 +919,26 @@ function valid_email_address($mail) {
  *   TRUE if the URL is in a valid format.
  */
 function valid_url($url, $absolute = FALSE) {
-  $allowed_characters = '[a-z0-9\/:_\-_\.\?\$,;~=#&%\+]';
   if ($absolute) {
-    return preg_match("/^(http|https|ftp):\/\/". $allowed_characters ."+$/i", $url);
+    return (bool)preg_match("
+      /^                                                      # Start at the beginning of the text
+      (?:ftp|https?):\/\/                                     # Look for ftp, http, or https schemes
+      (?:                                                     # Userinfo (optional) which is typically
+        (?:(?:[\w\.\-\+!$&'\(\)*\+,;=]|%[0-9a-f]{2})+:)*      # a username or a username and password
+        (?:[\w\.\-\+%!$&'\(\)*\+,;=]|%[0-9a-f]{2})+@          # combination
+      )?
+      (?:
+        (?:[a-z0-9\-\.]|%[0-9a-f]{2})+                        # A domain name or a IPv4 address
+        |(?:\[(?:[0-9a-f]{0,4}:)*(?:[0-9a-f]{0,4})\])         # or a well formed IPv6 address
+      )
+      (?::[0-9]+)?                                            # Server port number (optional)
+      (?:[\/|\?]
+        (?:[\w#!:\.\?\+=&@$'~*,;\/\(\)\[\]\-]|%[0-9a-f]{2})   # The path and query (optional)
+      *)?
+    $/xi", $url);
   }
   else {
-    return preg_match("/^". $allowed_characters ."+$/i", $url);
+    return (bool)preg_match("/^(?:[\w#!:\.\?\+=&@$'~*,;\/\(\)\[\]\-]|%[0-9a-f]{2})+$/i", $url);
   }
 }
 
@@ -1929,7 +2060,7 @@ function page_set_cache() {
  * @param $body
  *   Message to be sent. Drupal will format the correct line endings for you.
  * @param $from
- *   Sets From, Reply-To, Return-Path and Error-To to this value, if given.
+ *   Sets From to this value, if given.
  * @param $headers
  *   Associative array containing the headers to add. This is typically
  *   used to add extra headers (From, Cc, and Bcc).
@@ -1949,10 +2080,10 @@ function drupal_mail($mailkey, $to, $subject, $body, $from = NULL, $headers = ar
   // SMTP server.  Errors-To is redundant, but shouldn't hurt.
   $default_from = variable_get('site_mail', ini_get('sendmail_from'));
   if ($default_from) {
-    $defaults['From'] = $defaults['Reply-To'] = $defaults['Sender'] = $defaults['Return-Path'] = $defaults['Errors-To'] = $default_from;
+    $defaults['From'] = $defaults['Sender'] = $defaults['Return-Path'] = $defaults['Errors-To'] = $default_from;
   }
   if ($from) {
-    $defaults['From'] = $defaults['Reply-To'] = $from;
+    $defaults['From'] = $from;
   }
   $headers = array_merge($defaults, $headers);
   // Custom hook traversal to allow pass by reference
