@@ -1,5 +1,5 @@
 <?php
-// $Id: og.module,v 1.298.2.195 2008/07/02 19:57:44 weitzman Exp $
+// $Id: og.module,v 1.298.2.195.2.1 2009/09/30 19:11:20 dww Exp $
 
 // Selective groups states. chosen by the group admin
 define ('OG_OPEN', 0);
@@ -1089,11 +1089,13 @@ function og_page_activity() {
 // 
 function og_view_group(&$node, $teaser = FALSE, $page = FALSE) {
   if ($teaser || !$page) {
-    $node->content['og_description'] = array(
-      '#type' => 'item',
-      '#title' => t('Description'),
-      '#value' => $node->og_description,
+    if (!empty($node->og_description)) {
+      $node->content['og_description'] = array(
+        '#type' => 'item',
+        '#title' => t('Description'),
+        '#value' => check_plain($node->og_description),
       );
+    }
   }
   else {
     $bc[] = array('path' => "og", 'title' => t('Groups'));

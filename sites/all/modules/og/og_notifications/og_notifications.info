@@ -4,8 +4,8 @@ description = Allows users to subscribe to content in groups.
 package = "Organic groups"
 dependencies = notifications notifications_content og
 
-; Information added by drupal.org packaging script on 2008-07-02
-version = "5.x-7.3"
+; Information added by drupal.org packaging script on 2009-09-30
+version = "5.x-7.4"
 project = "og"
-datestamp = "1215029438"
+datestamp = "1254338448"
 
