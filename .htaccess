@@ -62,7 +62,7 @@ DirectoryIndex index.php
   ExpiresByType text/html A1
 </IfModule>
 
-php_value memory_limit 32M
+#php_value memory_limit 32M
 
 # Various rewrite rules.
 <IfModule mod_rewrite.c>
