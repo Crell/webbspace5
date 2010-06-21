@@ -1,5 +1,5 @@
 <?php
-// $Id: fieldgroup.module,v 1.1.4.36 2008/09/03 13:45:05 yched Exp $
+// $Id: fieldgroup.module,v 1.1.4.37 2010/06/09 01:06:29 karens Exp $
 
 /**
  * @file
@@ -363,6 +363,7 @@ function fieldgroup_content_admin_field_remove_submit($form_id, &$form_values) {
 function fieldgroup_nodeapi(&$node, $op, $teaser, $page) {
   switch ($op) {
     case 'view':
+    case 'print':
       $context = $teaser ? 'teaser' : 'full';
       foreach (fieldgroup_groups($node->type) as $group_name => $group) {
         $label = $group['settings']['display']['label'] == 'above';

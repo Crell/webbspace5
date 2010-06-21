@@ -6,8 +6,8 @@ package = CCK
 
 
 
-; Information added by drupal.org packaging script on 2008-11-05
-version = "5.x-1.10"
+; Information added by drupal.org packaging script on 2010-06-17
+version = "5.x-1.12"
 project = "cck"
-datestamp = "1225914303"
+datestamp = "1276785606"
 
