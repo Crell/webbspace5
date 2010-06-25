@@ -129,7 +129,20 @@ function phptemplate_views_view_list_og_notes($view, $nodes, $type, $parent=NULL
  */
 function phptemplate_username($object) {
 
-  profile_load_profile($object);
+  static $users = array();
+
+  // I can't believe I'm going to do this, but it's the only way I can see to
+  // avoid re-loading the profile data a zillion times.  I'm not sure why that's
+  // happening and I don't feel like taking the time to figure it out on Drupal 5.
+  if (empty($users[$object->uid])) {
+    $users[$object->uid] = $object;
+  }
+  else {
+    $object = $users[$object->uid];
+  }
+  if (empty($object->profile_first_name)) {
+    profile_load_profile($object);
+  }
   
   $name = array();
   if (!empty($object->profile_first_name)) {
