@@ -185,7 +185,7 @@ function nodereference_field_formatter($field, $item, $formatter, $node) {
   }
 
   if (!isset($titles[$item['nid']])) {
-    if ($title = db_result(db_query(db_rewrite_sql("SELECT title FROM {node} WHERE nid=%d"), $item['nid']))) {
+    if ($title = db_result(db_query(db_rewrite_sql("SELECT title FROM {node} n WHERE nid=%d"), $item['nid']))) {
       $titles[$item['nid']] = $title ? $title : '';
     }
   }
