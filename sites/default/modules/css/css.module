@@ -124,7 +124,7 @@ function css_nodeapi(&$node, $op, $teaser, $page) {
 
     case 'view':
       if (variable_get('css_use_css_'. $node->type, FALSE)) {
-        theme('css_import', $node->nid);
+        theme('css_import', $node->vid);
       }
       break;
   }
@@ -149,6 +149,6 @@ function css_get($vid = 0) {
  * We use a theme function for this to let themers able
  * to customize the behaviour of importing.
  */
-function theme_css_import($nid) {
-  drupal_set_html_head('<style type="text/css" media="all"> @import "' . url('css/get/' . $nid) . '";</style>');
+function theme_css_import($vid) {
+  drupal_set_html_head('<style type="text/css" media="all"> @import "' . url('css/get/' . $vid) . '";</style>');
 }
