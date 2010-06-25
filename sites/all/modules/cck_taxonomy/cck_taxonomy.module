@@ -171,10 +171,13 @@ function cck_taxonomy_field_formatter_info() {
 }
 
 function cck_taxonomy_field_formatter($field, $item, $formatter, $node) {
+  static $terms = array();
   switch ($formatter) {
     default:
-      $name = db_result(db_query('SELECT name FROM {term_data} WHERE tid = %d', $item['tid']));
-      return $name;
+      if (empty($terms[$item['tid']])) {
+        $terms[$item['tid']] = db_result(db_query('SELECT name FROM {term_data} WHERE tid = %d', $item['tid']));
+      }
+      return $terms[$item['tid']];
   }
 }
 
