@@ -159,11 +159,16 @@ ini_set('session.name',             'DWEBBSESSID');
  * Remove the leading hash signs to enable.
  */
 $conf = array(
-  'clean_url' => 0,
-  'cache' => 0,
-  'preprocess_css' => 0,
+#  'clean_url' => 0,
+#  'cache' => 0,
+#  'preprocess_css' => 0,
 #   'site_name' => 'My Drupal site',
 #   'theme_default' => 'minnelli',
 #   'anonymous' => 'Visitor',
 );
 
+// Pull in local settings.
+$local = dirname(realpath(__FILE__)) . '/settings.local.php';
+if (file_exists($local)) {
+  include 'settings.local.php';
+}
