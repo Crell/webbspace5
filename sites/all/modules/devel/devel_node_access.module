@@ -1,5 +1,5 @@
 <?php
-// $Id: devel_node_access.module,v 1.7.4.19 2009/09/13 12:11:39 salvis Exp $
+// $Id: devel_node_access.module,v 1.7.4.24 2010/07/13 15:46:53 salvis Exp $
 /**
  * @file
  *
@@ -234,7 +234,8 @@ function devel_node_access_block($op = 'list', $delta = 0) {
             $rows = array();
             while ($row = db_fetch_object($result)) {
               $explained = module_invoke_all('node_access_explain', $row);
-              $rows[] = array(!empty($row->title) ? check_plain($row->title) : $row->nid,
+              $title = (!empty($row->title) ? check_plain($row->title) : $row->nid);
+              $rows[] = array('<a href="#node-'. $row->nid .'">'. $title .'</a>',
                               $row->realm,
                               $row->gid,
                               $row->grant_view,
@@ -257,6 +258,7 @@ function devel_node_access_block($op = 'list', $delta = 0) {
               'illegitimate' => array(t('illegitimate'), 'error',   t('Should NOT be in !na because of lower priority!', $tokens)),
               'alien'        => array(t('alien'),        'error',   t('Should NOT be in !na because of unknown origin!', $tokens)),
             );
+            $active_states = array('default', 'ok', 'static', 'unexpected', 'illegitimate', 'alien');
             $headers = array(t('node'), t('prio'), t('status'), t('realm'), t('gid'), t('view'), t('update'), t('delete'), t('explained'));
             $active_grants = array();
             while ($active_grant = db_fetch_object($result)) {
@@ -293,10 +295,10 @@ function devel_node_access_block($op = 'list', $delta = 0) {
                 }
               }
               // check for grants in the node_access table that aren't returned by node_access_acquire_grants()
-              $found = FALSE;
               if (isset($active_grants[$nid])) {
                 foreach ($active_grants[$nid] as $realm => $active_grants_realm) {
                   foreach ($active_grants_realm as $gid => $active_grant) {
+                    $found = FALSE;
                     $count_nonempty_grants = 0;
                     foreach ($acquired_grants_nid as $priority => $acquired_grants_nid_priority) {
                       if (isset($acquired_grants_nid_priority[$realm][$gid])) {
@@ -378,27 +380,28 @@ function devel_node_access_block($op = 'list', $delta = 0) {
               $row->grant_update = $grant['grant_update'];
               $row->grant_delete = $grant['grant_delete'];
               $row->explained = implode('; ', module_invoke_all('node_access_explain', $row));
-              unset($row->title);
+              unset($row->title);  // possibly needed above
               if ($row->nid == 0 && $row->gid == 0 && $row->realm == 'all' && count($all_grants) > 1) {
                 $row->state = array('data' => $states['unexpected'][0], 'title' => $states['unexpected'][2]);
                 $class = $states['unexpected'][1];
               }
               else {
-              $class = $states[$grant['state']][1];
+                $class = $states[$grant['state']][1];
               }
               $error_count += ($class == 'error');
               $row = (array) $row;
               foreach (array('view', 'update', 'delete') as $op) {
                 $row["grant_$op"] = array('data' => $row["grant_$op"]);
-                if ((isset($checked_grants[$grant['nid']][$op][$grant['realm']]) && in_array($grant['gid'], $checked_grants[$grant['nid']][$op][$grant['realm']]) || ($row['nid'] == 0 && $row['gid'] == 0 && $row['realm'] == 'all')) && !empty($row["grant_$op"]['data'])) {
+                if ((isset($checked_grants[$grant['nid']][$op][$grant['realm']]) && in_array($grant['gid'], $checked_grants[$grant['nid']][$op][$grant['realm']]) || ($row['nid'] == 0 && $row['gid'] == 0 && $row['realm'] == 'all')) && !empty($row["grant_$op"]['data']) && in_array($grant['state'], $active_states)) {
                   $row["grant_$op"]['data'] .= '&prime;';
                   $row["grant_$op"]['title'] = t('This entry grants access to this node to this user.');
                 }
                 if (isset($grant["grant_$op!"])) {
-                  $row["grant_$op"]['data'] = $grant["grant_$op!"] .'&gt;'. $row["grant_$op"]['data'];
+                  $row["grant_$op"]['data'] = $grant["grant_$op!"] .'&gt;'. (!$row["grant_$op"]['data'] ? 0 : $row["grant_$op"]['data']);
                   $row["grant_$op"]['class'] = 'error';
                 }
               }
+              $row['nid'] = '<a href="#node-'. $grant['nid'] .'">'. $row['nid'] .'</a>';
               foreach (array('nid', 'priority', 'gid') as $key) {
                 $row[$key] = array('data' => $row[$key], 'style' => 'text-align: right');
               }
@@ -468,9 +471,7 @@ function devel_node_access_block($op = 'list', $delta = 0) {
 
         case 1:
           // show which users can access this node
-          if (arg(0) == 'node' && is_numeric(arg(1))) {
-            $nid = arg(1);
-            $node = node_load($nid);
+          if (arg(0) == 'node' && is_numeric($nid = arg(1)) && $node = node_load($nid)) {
             $headers = array(t('username'), t('view'), t('update'), t('delete'));
             $rows = array();
             // Find all users. The following operations are very inefficient, so we

@@ -1,5 +1,5 @@
 <?php
-// $Id: devel.module,v 1.106.4.107 2009/09/23 18:42:01 davereid Exp $
+// $Id: devel.module,v 1.106.4.109 2009/10/21 15:41:50 salvis Exp $
 
 // This module holds functions useful for Drupal development.
 // Please contribute!
@@ -1318,11 +1318,11 @@ function dvr($input, $return = FALSE, $name = NULL) {
 function kprint_r($input, $return = FALSE, $name = NULL, $function = 'print_r') {
   if (has_krumo()) {
     if (user_access('access devel information')) {
-      return $return ? krumo_ob($input) : krumo($input);
+      return $return ? (isset($name) ? $name .' => ' : '') . krumo_ob($input) : krumo($input);
     }
   }
   else {
-    return dprint_r($input, $return, $name, 'print_r');
+    return dprint_r($input, $return, $name, $function);
   }
 }
 
