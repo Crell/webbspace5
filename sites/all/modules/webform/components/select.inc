@@ -1,5 +1,5 @@
 <?php
-// $Id: select.inc,v 1.18.2.19.2.37 2009/03/04 05:05:18 quicksketch Exp $
+// $Id: select.inc,v 1.18.2.19.2.38 2010/02/07 04:48:59 quicksketch Exp $
 
 /**
  * @file
@@ -151,7 +151,7 @@ function _webform_render_select($component) {
   $default_value = _webform_filter_values($component['value'], NULL, NULL, FALSE);
   $options = _webform_select_options($component['extra']['items'], $component['extra']['aslist'] !== 'Y');
 
-  if ($component['extra']['aslist'] === 'Y' && $component['extra']['multiple'] !== 'Y') {
+  if ($component['extra']['aslist'] === 'Y' && $component['extra']['multiple'] !== 'Y' && !($component['mandatory'] && !empty($component['value']))) {
     $options = array('' => t('select...')) + $options;
   }
 

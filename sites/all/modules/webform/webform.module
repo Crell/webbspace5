@@ -1,5 +1,5 @@
 <?php
-// $Id: webform.module,v 1.113.2.70.2.103 2009/11/06 02:01:17 quicksketch Exp $
+// $Id: webform.module,v 1.113.2.70.2.109 2010/04/01 02:14:28 quicksketch Exp $
 
 /**
  * This module provides a simple way to create forms and questionnaires.
@@ -336,7 +336,7 @@ function webform_insert($node) {
   }
 
   // Set the per-role submission access control.
-  foreach (array_filter($node->webform['roles']) as $rid) {
+  foreach ($node->webform['roles'] as $rid) {
     db_query('INSERT INTO {webform_roles} (nid, rid) VALUES (%d, %d)', $node->nid, $rid);
   }
 }
@@ -850,6 +850,9 @@ function webform_submit(&$node) {
     $node->webform['submit_interval'] = -1;
   }
   unset($node->webform['enforce_limit']);
+
+  // Save roles.
+  $node->webform['roles'] = array_keys(array_filter($node->webform['roles']));
 }
 
 /**
@@ -940,7 +943,9 @@ function webform_view(&$node, $teaser = 0, $page = 0) {
   // Check if the user can add another submission.
   if ($node->webform['submit_limit'] != -1) { // -1: Submissions are never throttled.
     include_once(drupal_get_path('module', 'webform') .'/webform_submissions.inc');
-    if ($limit_exceeded = _webform_submission_limit_check($node)) {
+
+    // Disable the form if the limit is exceeded and page cache is not active.
+    if ($limit_exceeded = _webform_submission_limit_check($node) && ($user->uid != 0 || variable_get('cache', CACHE_DISABLED) == CACHE_DISABLED)) {
       $enabled = FALSE;
     }
   }
@@ -960,7 +965,7 @@ function webform_view(&$node, $teaser = 0, $page = 0) {
   }
 
   // Print out messages for the webform.
-  if (!$preview && !$logging_in) {
+  if ($node->build_mode != NODE_BUILD_PREVIEW && !$logging_in && ($user->uid != 0 || !variable_get('cache', CACHE_DISABLED))) {
     theme('webform_view_messages', $node, $teaser, $page, $submission_count, $limit_exceeded, $allowed_roles);
   }
 
@@ -1024,7 +1029,14 @@ function theme_webform_view_messages($node, $teaser, $page, $submission_count, $
     }
     elseif (isset($allowed_roles[2])) {
       // The "authenticated user" role is allowed to submit and the user is currently logged-out.
-      $message = t('You must <a href="!login">login</a> or <a href="!register">register</a> to view this form.', array('!login' => url(('user/login'), drupal_get_destination()), '!register' => url(('user/register'), drupal_get_destination())));
+      $login = url('user/login', drupal_get_destination());
+      $register = url('user/register', drupal_get_destination());
+      if (variable_get('user_register', 1) == 0) {
+        $message = t('You must <a href="!login">login</a> to view this form.', array('!login' => $login));
+      }
+      else {
+        $message = t('You must <a href="!login">login</a> or <a href="!register">register</a> to view this form.', array('!login' => $login, '!register' => $register));
+      }
     }
     else {
       // The user must be some other role to submit.
@@ -1331,11 +1343,6 @@ function webform_client_form($node, $submission, $enabled, $preview, $form_value
           '#value'     => $page_count,
         );
 
-        $form['details']['page_count'] = array(
-          '#type'      => 'hidden',
-          '#value'     => $page_count,
-        );
-
         // Add the submit button(s).
         if ($page_num > 1) {
           $form['previous'] = array(
@@ -1447,6 +1454,20 @@ function _webform_client_form_add_component($cid, $component, &$parent_fieldset,
 
 function webform_client_form_validate($form_id, &$form_values) {
   $node = node_load(array('nid' => $form_values['details']['nid']));
+  $sid = $form_values['details']['sid'];
+
+  // Check that the user has not exceeded the submission limit.
+  // This usually will only apply to anonymous users when the page cache is
+  // enabled, because they may submit the form even if they do not have access.
+  if ($node->webform['submit_limit'] != -1) { // -1: Submissions are never throttled.
+    include_once(drupal_get_path('module', 'webform') .'/webform_submissions.inc');
+
+    if (empty($sid) && $limit_exceeded = _webform_submission_limit_check($node)) {
+      $error = theme('webform_view_messages', $node, 0, 1, 0, $limit_exceeded, array_keys(user_roles()));
+      form_set_error('', $error);
+      return;
+    }
+  }
 
   // Flatten trees within the submission.
   $form_values['submitted_tree'] = $form_values['submitted'];
