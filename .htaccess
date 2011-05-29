@@ -67,6 +67,11 @@ DirectoryIndex index.php
   ExpiresByType text/html A1
 </IfModule>
 
+
+# Set error reporting level for PHP 5.3 to not die on Drupal 5.
+# This is E_ALL, minus deprecated, strict, and notice.
+php_value error_reporting 12279
+
 # Various rewrite rules.
 <IfModule mod_rewrite.c>
   RewriteEngine on
